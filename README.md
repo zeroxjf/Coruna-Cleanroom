@@ -1,6 +1,40 @@
 # iOS-Coruna-Reconstruction
 
-This repository packages reverse engineering notes, clean-room reconstruction work, and tooling for the Coruna exploit chain into a standalone handoff repo.
+Clean-room reconstruction of the **Coruna** iOS exploit chain targeting **iOS 16.2 – 17.2.1**.
+
+## Chain Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  index.html                                                     │
+│  Fingerprints device model + iOS version, selects stage payloads│
+└──────────────────────────┬──────────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 1 — Browser Primitive                                    │
+│  "terrorbird" (16.2–16.5.1) or "cassowary" (16.6–17.2.1)       │
+│  JIT/speculation bug → JSC heap corruption → addrof/fakeobj →   │
+│  arbitrary read64/write64 through WASM-backed views             │
+└──────────────────────────┬──────────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 2 — PAC Bypass ("seedbell")                              │
+│  Converts JS r/w into arm64e PAC sign/auth/call primitives      │
+│  via JIT page reuse + context-forging                           │
+└──────────────────────────┬──────────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 3 — Native Loader                                        │
+│  Rebuilds 0xF00DBEEF record container from payload manifest,    │
+│  maps bootstrap.dylib into memory, jumps to _process            │
+└──────────────────────────┬──────────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  bootstrap.dylib → orchestrator (0x80000) → driver (0x90000)    │
+│  → TweakLoader (0xF0000) → extracts embedded Mach-O →           │
+│  patches dyld lib-validation → dlopen → next_stage_main         │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## Disclaimer
 
