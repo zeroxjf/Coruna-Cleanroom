@@ -2,6 +2,13 @@
 
 Clean-room reconstruction of the **Coruna** iOS exploit chain. The browser-stage notes span **iOS 16.2 – 17.2.1**; the documented native chain in this repo is strongest for **iOS 16.3+**.
 
+## Coverage Split
+
+- **iOS 16 path:** `terrorbird` Stage1 on `16.2–16.5.1`, then the older `seedbell` branch on `16.3–16.5.1`
+- **iOS 17 path:** `cassowary` Stage1 on `16.6–17.2.1`, plus `seedbell_pre` and the newer `seedbell` branch on `17.0–17.2.1`
+- **Shared native path:** `Stage3_VariantB.js`, `bootstrap.dylib`, record `0x80000`, record `0x90000`, record `0x90001`, and `TweakLoader` are common loader/native-chain material
+- **Current implementation gap:** the least-finished part is still the per-version native `0x90000` logic, especially on newer firmware
+
 ## Chain Overview
 
 ```
@@ -19,8 +26,8 @@ Clean-room reconstruction of the **Coruna** iOS exploit chain. The browser-stage
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  Stage 2 — PAC Bypass ("seedbell")                              │
-│  Converts JS r/w into arm64e PAC sign/auth/call primitives      │
-│  via JIT page reuse + context-forging                           │
+│  Older 16.x and newer 17.x branches both convert JS r/w into    │
+│  arm64e PAC sign/auth/call primitives via BreakIterator abuse   │
 └──────────────────────────┬──────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐

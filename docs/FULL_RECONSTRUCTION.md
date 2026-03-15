@@ -20,6 +20,16 @@ The reconstruction below is based on:
 - `live-site/payloads/<hash>/entry*.dylib`
 - `live-site/TweakLoader/.theos/obj/arm64*/TweakLoader.dylib`
 
+## Coverage Split
+
+The coverage in this repo breaks down like this:
+
+- **iOS 16 browser path:** `terrorbird` on `16.2–16.5.1`, then the older `seedbell` branch on `16.3–16.5.1`
+- **iOS 17 browser path:** `cassowary` on `16.6–17.2.1`, then `seedbell_pre` plus the newer `seedbell` branch on `17.0–17.2.1`
+- **Shared native path:** `Stage3_VariantB.js`, `bootstrap.dylib`, the `0x50000` helper, records `0x80000` / `0x90000` / `0x90001`, and `0xF0000` sit after browser exploitation and are largely shared across the documented range
+
+The remaining implementation gap is the deeper per-version `0x90000` state/patch logic, so the repo documents the iOS 17 browser chain already but does not yet present a source-equivalent 17.x-specific native exploit implementation.
+
 ## End-To-End Shape
 
 The live chain is:
@@ -35,6 +45,8 @@ The live chain is:
 9. The embedded `__SBTweak` installs lockscreen/SpringBoard hooks and draws a visible “LOCKSCREEN COMPROMISED / PWNED” overlay.
 
 ## Stage1: Exact Browser Primitive
+
+Both Stage1 branches converge on the same caller-facing primitive. The main difference is how each browser bug corrupts JSC state before the final WASM-backed memory contract is installed.
 
 ### `terrorbird` on iOS 16.2-16.5.1
 
@@ -101,6 +113,8 @@ Important anchors:
 - final primitive install: `:1050-1083`
 
 ## Stage2: Exact PAC Bypass
+
+Stage2 is likewise split between an older and newer branch, but both routes still end at the same arm64e PAC-aware sign/auth/call surface.
 
 ### 16.3-16.5.1 `seedbell`
 

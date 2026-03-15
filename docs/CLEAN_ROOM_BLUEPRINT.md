@@ -2,6 +2,16 @@
 
 This document converts the recovered chain into implementation-facing contracts so the exploits can be rebuilt as clean, readable modules instead of reusing the original malware packaging.
 
+## Coverage Split
+
+The clean-room plan is meant to cover both the 16.x and 17.x browser branches, plus the native chain they feed into.
+
+- **iOS 16 browser branch:** `terrorbird` Stage1, then the older `seedbell` PAC path
+- **iOS 17 browser branch:** `cassowary` Stage1, then `seedbell_pre` and the newer `seedbell` PAC path
+- **Shared native branch:** `Stage3_VariantB.js`, `bootstrap.dylib`, `0x50000`, `0x80000`, `0x90000`, `0x90001`, and `0xF0000`
+
+The code in `clean-room/` currently focuses on the shared native contracts and loader side because those interfaces are reused across the family. The remaining gap is the unfinished source-equivalent reconstruction of the newer firmware-specific `0x90000` branches.
+
 ## Module Split
 
 The chain cleanly decomposes into these modules:
@@ -19,6 +29,10 @@ The chain cleanly decomposes into these modules:
    - `getJITCodePointer`
    - alloc helpers
 
+   Backend variants:
+   - `terrorbird` for `16.2–16.5.1`
+   - `cassowary` for `16.6–17.2.1`
+
 2. `stage2_pac.js`
    Consumes the Stage1 primitive and produces:
    - `pacia`
@@ -26,6 +40,10 @@ The chain cleanly decomposes into these modules:
    - `autia`
    - `autda`
    - PAC-aware indirect call helpers
+
+   Backend variants:
+   - older `seedbell` branch for `16.3–16.5.1`
+   - `seedbell_pre` plus newer `seedbell` branch for `17.0–17.2.1`
 
 3. `stage3_loader.js`
    Consumes the Stage2 call primitive and handles:
