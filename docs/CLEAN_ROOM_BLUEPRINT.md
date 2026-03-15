@@ -283,6 +283,15 @@ The only fields used directly by `_startr` in the recovered path are the enable 
   - port spray
   - `IOSurfaceRoot`
   - post-primitive sandbox / AMFI / developer-mode policy patching
+- expose concrete control selectors after the primitive is live:
+  - `0xC000001B`: query supported task-flag bits in place
+  - `0x4000001B`: apply a `task_port + 3 flag bytes` policy/code-sign mutation request
+  - `0x40000010`: later entitlement-plist injection path used after the `0x4000001B` prerequisite
+- terminate through one of four kernel-family-specific handoff helpers rather than one generic tail path:
+  - fileport/voucher mailbox graft keyed from `0x1122334455667788 + n`
+  - memory-entry handoff keyed from `0x3122334455667788 + n`
+  - newer-build slot handoff via `sub_1CA68()` mailbox slots `0/1`
+  - highest-branch control-page publish through mailbox slots `21/22/24/25`
 
 ### `0x90001`
 

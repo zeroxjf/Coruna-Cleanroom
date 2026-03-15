@@ -47,6 +47,19 @@ enum coruna90001_command {
     CORUNA90001_CMD_STAGE_1B_QUERY = 0xC000001Bu,
 };
 
+enum coruna90000_selector {
+    CORUNA90000_SEL_APPLY_IOKIT_USERCLIENT_CLASSES = 0x40000010u,
+    CORUNA90000_SEL_STAGE_1B_SET = 0x4000001Bu,
+    CORUNA90000_SEL_STAGE_1B_QUERY = 0xC000001Bu,
+};
+
+enum coruna90000_stage1b_cap_bit {
+    CORUNA90000_STAGE1B_CAP_BIT_0 = 0x1,
+    CORUNA90000_STAGE1B_CAP_BIT_1 = 0x2,
+    CORUNA90000_STAGE1B_CAP_BIT_2 = 0x4,
+    CORUNA90000_STAGE1B_CAP_BIT_3 = 0x8,
+};
+
 enum coruna_blob_magic {
     CORUNA_CONTAINER_MAGIC = 0xF00DBEEF,
     CORUNA_SELECTOR_MAGIC = 0x12345678,
@@ -121,6 +134,20 @@ struct coruna90000_batch_op {
     uint32_t opcode;
     uint32_t reserved_04;
     uint64_t argument;
+};
+
+struct coruna90000_stage1b_request {
+    uint32_t task_port;
+    /*
+     * The live driver stores these three bytes into a task-local 32-bit flag
+     * word, but the byte-to-bit mapping changes across kernel families.
+     * `flag_06` is the byte used by the recovered `0x80000` callers when
+     * `dyldVersionNumber >= 900.0`.
+     */
+    uint8_t flag_04;
+    uint8_t flag_05;
+    uint8_t flag_06;
+    uint8_t reserved_07;
 };
 
 struct coruna90000_driver_object {

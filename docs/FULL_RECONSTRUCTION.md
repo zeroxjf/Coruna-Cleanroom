@@ -625,6 +625,95 @@ Observed mechanics:
    - resolves additional kernel handles
    - finalizes task / host access paths before returning success
 
+### Concrete Selector Contract
+
+The main dispatcher is not just a monolithic “do exploit things” entrypoint. The modern 17.x path exposes concrete selector contracts that `0x80000` actually uses.
+
+Observed selectors in the recovered 17.x driver:
+
+- `0xC000001B`
+  - query/readback path
+  - the caller supplies a 32-bit requested bitmask in place
+  - the dispatcher writes back only the subset it considers available on the current kernel/build
+  - the supported bits are `0x1`, `0x2`, `0x4`, and `0x8`
+- `0x4000001B`
+  - task flag setter path
+  - payload layout is:
+
+```c
+struct Driver1BRequest {
+    uint32_t task_port;   // 0 => mach_task_self_
+    uint8_t flag_04;
+    uint8_t flag_05;
+    uint8_t flag_06;
+    uint8_t reserved_07;
+};
+```
+
+The modern `sub_3AE94` path stores those three flag bytes into a task-local 32-bit word, but the byte-to-bit mapping changes across the `0x1C1B0A80100000` threshold:
+
+- older layout:
+  - `flag_04` -> bits `0x0000FF00`
+  - `flag_05` -> bits `0x000000FF`
+  - `flag_06` -> bits `0x00FF0000`
+- newer layout:
+  - `flag_04` -> bits `0x00FF0000`
+  - `flag_05` -> bits `0x000000FF`
+  - `flag_06` -> bits `0xFF000000`
+
+The same setter also feeds the legacy code-sign / task-patching helpers:
+
+- `flag_06` is propagated into the extra dyld/task flag path (`sub_2F194`, `sub_3B49C`)
+- `flag_05` is also propagated into the legacy code-sign helper path
+
+Recovered `0x80000` call sites make this less speculative:
+
+- `sub_A1E0` does a `0xC000001B` probe, then a `0x4000001B` set on `mach_task_self_`
+- that helper leaves `flag_04 = 0`, `flag_05 = 0`, and sets `flag_06 = 1` only when `dyldVersionNumber >= 900.0`
+- `sub_24B78` repeats the same `0xC000001B` -> `0x4000001B` sequence before, on `hw.cpufamily == 458787763`, issuing selector `0x40000010` with an entitlement plist that grants:
+  - `IOSurfaceRootUserClient`
+  - `AGXDeviceUserClient`
+
+That makes `0x4000001B` a real prerequisite task-policy/code-sign mutation step, not just a vague internal toggle.
+
+### Terminal Helper Families
+
+The tail of the native chain is also more concrete now. The per-kernel branch at the end of `sub_3CCA8` / `sub_3D1AC` is not a single opaque patch helper; it is a family of mailbox/publication routines selected by kernel-address thresholds and state bits.
+
+Recovered 17.x families:
+
+- `sub_1DBD8` / older modern equivalent
+  - fileport/voucher mailbox graft helper
+  - uses `host_create_mach_voucher` recipes keyed from `0x1122334455667788 + n`
+  - converts saved FDs into fileports and writes `a1+6608` plus `a1+6624` / `a1+536` derived values into recovered slot structures
+- `sub_1DE68`
+  - memory-entry handoff helper
+  - uses voucher recipes keyed from `0x3122334455667788 + n`
+  - builds a one-page control block containing `{ a1+6608, a1+240, a1+264, a1+272 }`
+  - publishes three handles through recovered mailbox slots
+- `sub_1E154`
+  - newer-build slot handoff
+  - uses `sub_1CA68()` mailbox slots `0` and `1`
+  - exports `{ a1+6608, a1+6296, a1+6304, a1+128, a1+136, a1+160, a1+168 }`
+  - finalizes through `sub_28BD8`
+- `sub_C060`
+  - highest branch when `(*(_BYTE *)state & 0x20) != 0`
+  - builds a control page, calls `sub_BE50` to derive three extra ports/handles, then publishes them through mailbox slots `21`, `22`, `24`, and `25`
+  - those slot ids come directly from `xmmword_436A0`
+
+The branch ladder is selected from:
+
+- kernel-address thresholds:
+  - `0x1F5418FFFFFFFF`
+  - `0x225C19804FFFFF`
+  - `0x225C1E804FFFFF`
+  - `0x27120F04B00002`
+- state bits:
+  - `(*(_DWORD *)state & 0x5584001)`
+  - `(*(_BYTE *)state & 0x20)`
+
+The two modern `0x90000` variants checked here, `377bed...` and `7a1cef...`, preserve the same selector contract and the same helper-family split even though the concrete function addresses move.
+
 ### What This Means
 
 The `0x90000` record is not a one-shot payload runner. It is a kernel primitive / post-exploit service object.
