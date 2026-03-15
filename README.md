@@ -12,53 +12,54 @@ Clean-room reconstruction of the **Coruna** iOS exploit chain. The browser-stage
 ## Chain Overview
 
 ```
-┌────────────────────────────────────┐
-│  index.html                        │
-│  Fingerprint device/iOS,           │
-│  select stage payloads             │
-└─────────────────┬──────────────────┘
-                  ▼
-┌────────────────────────────────────┐
-│  Stage 1 — Browser Primitive       │
-│                                    │
-│  "terrorbird"  16.2 – 16.5.1      │
-│  "cassowary"   16.6 – 17.2.1      │
-│                                    │
-│  JIT/speculation bug               │
-│  → JSC heap corruption             │
-│  → addrof / fakeobj                │
-│  → arb read64/write64              │
-│    via WASM-backed views           │
-└─────────────────┬──────────────────┘
-                  ▼
-┌────────────────────────────────────┐
-│  Stage 2 — PAC Bypass ("seedbell") │
-│                                    │
-│  16.x + 17.x branches             │
-│  JS r/w → arm64e PAC              │
-│  sign/auth/call via                │
-│  BreakIterator abuse               │
-└─────────────────┬──────────────────┘
-                  ▼
-┌────────────────────────────────────┐
-│  Stage 3 — Native Loader           │
-│                                    │
-│  Rebuild 0xF00DBEEF container,     │
-│  map bootstrap.dylib,              │
-│  jump to _process                  │
-└─────────────────┬──────────────────┘
-                  ▼
-┌────────────────────────────────────┐
-│  Post-Exploit                      │
-│                                    │
-│  bootstrap.dylib                   │
-│  → orchestrator (0x80000)          │
-│  → driver (0x90000)                │
-│  → TweakLoader (0xF0000)           │
-│  → extract Mach-O                  │
-│  → patch dyld lib-validation       │
-│  → dlopen → next_stage_main        │
-└────────────────────────────────────┘
+┌──────────────────────────────┐
+│  index.html                  │
+│  Fingerprint device/iOS,     │
+│  select stage payloads       │
+└──────────────┬───────────────┘
+               ▼
+┌──────────────────────────────┐
+│  Stage 1 — Browser Primitive │
+│                              │
+│  "terrorbird" 16.2–16.5.1   │
+│  "cassowary"  16.6–17.2.1   │
+│                              │
+│  JIT/speculation bug         │
+│  → JSC heap corruption       │
+│  → addrof / fakeobj          │
+│  → arb read64/write64        │
+│    via WASM-backed views     │
+└──────────────┬───────────────┘
+               ▼
+┌──────────────────────────────┐
+│  Stage 2 — PAC Bypass       │
+│  ("seedbell")                │
+│                              │
+│  16.x + 17.x branches       │
+│  JS r/w → arm64e PAC        │
+│  sign/auth/call via          │
+│  BreakIterator abuse         │
+└──────────────┬───────────────┘
+               ▼
+┌──────────────────────────────┐
+│  Stage 3 — Native Loader     │
+│                              │
+│  Rebuild 0xF00DBEEF record,  │
+│  map bootstrap.dylib,        │
+│  jump to _process            │
+└──────────────┬───────────────┘
+               ▼
+┌──────────────────────────────┐
+│  Post-Exploit                │
+│                              │
+│  bootstrap.dylib             │
+│  → orchestrator (0x80000)    │
+│  → driver (0x90000)          │
+│  → TweakLoader (0xF0000)     │
+│  → extract Mach-O            │
+│  → patch dyld lib-valid      │
+│  → dlopen → next_stage_main  │
+└──────────────────────────────┘
 ```
 
 ## Disclaimer
