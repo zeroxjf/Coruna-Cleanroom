@@ -6,59 +6,24 @@ Reverse-engineering reconstruction of the **Coruna** iOS exploit kit, analyzed f
 
 The full Coruna kit ([documented by Google TAG](https://cloud.google.com/blog/topics/threat-intelligence/coruna-powerful-ios-exploit-kit)) contains 5 full exploit chains and 23 exploits spanning **iOS 13.0 – 17.2.1**. It chains JSC type-confusions, an `Intl.Segmenter`/BreakIterator PAC bypass, and a custom IOGPU/AGX + IOSurface kernel exploit into persistent code execution — then cleans up after itself.
 
-### CVE Version Matrix
+### Exploit Chain Map
 
-Individual vulnerabilities were patched at different iOS versions. The kit uses different exploit chains for different sub-ranges — **no single chain works across the entire 13.0–17.2.1 span**. Codenames are from the kit's internal naming.
+The kit uses different exploit chains for different iOS sub-ranges — **no single chain works across the entire 13.0–17.2.1 span**. A full chain needs a WebKit RCE + kernel exploit both unpatched. Codenames are from the kit's internal naming.
 
-| Codename | CVE | Type | Coruna target range | Fixed in |
-|---|---|---|---|---|
-| Sparrow | CVE-2024-23225 | Kernel | iOS 17.0 – 17.3 | iOS 17.4 + 16.7.6 |
-| Rocket | CVE-2024-23296 | Kernel RTKit | iOS 17.1 – 17.4 | iOS 17.4 + 16.7.6 |
-| `cassowary` | CVE-2024-23222 | WebKit RCE | iOS 16.6 – 17.2.1 | iOS 17.3 + 16.7.5 |
-| Parallax | CVE-2023-41974 | Kernel | iOS 16.4 – 16.7 | iOS 17.0 + 15.8.7 |
-| `terrorbird` | CVE-2023-43000 | WebKit RCE | iOS 16.2 – 16.5.1 | iOS 16.6 |
-| IronLoader | CVE-2023-32409 | Sandbox escape | iOS 16.0 – 16.3.1 | iOS 16.5 + 15.7.8 |
-| Photon | CVE-2023-32434 | Kernel | iOS 14.5 – 15.7.6 | iOS 16.5.1 + 15.7.7 |
-| Gallium | CVE-2023-38606 | Kernel | iOS 14.x | iOS 16.6 + 15.7.8 |
-| `jacurutu` | CVE-2022-48503 | WebKit RCE | iOS 15.2 – 15.5 | iOS 15.6 |
-| `buffout` | CVE-2021-30952 | WebKit RCE | iOS 13.0 – 15.1.1 | iOS 15.2 |
-| Neutron | CVE-2020-27932 | Kernel privesc | iOS 13.x | iOS 14.2 |
-| Dynamo | CVE-2020-27950 | Kernel info leak | iOS 13.x | iOS 14.2 |
-
-`bluebird` (Stage 1 for iOS 15.6–16.1.2) is referenced in the kit's JS loader but its CVE has not been publicly mapped by Google TAG.
-
-Note: CVE associations and target ranges are from the [Google TAG report](https://cloud.google.com/blog/topics/threat-intelligence/coruna-powerful-ios-exploit-kit) and [Hacker News coverage](https://thehackernews.com/2026/03/coruna-ios-exploit-kit-uses-23-exploits.html). Google TAG states some associations may be subject to revision. The "Coruna target range" is where the kit deploys each exploit (version-specific offsets), which may be narrower than the CVE's full vulnerable range.
-
-### Full-Chain Windows
-
-A full chain requires a WebKit RCE **and** a kernel exploit both unpatched on the same iOS version. These are the windows where the kit has matching components:
-
-| iOS range | WebKit RCE | Kernel | Notes |
+| iOS window | WebKit RCE | Kernel | Status |
 |---|---|---|---|
-| **13.0 – 14.1** | `buffout` (CVE-2021-30952) | Neutron + Dynamo (CVE-2020-27932/27950) | Both patched in 14.2 |
-| **14.5 – 15.1.1** | `buffout` (CVE-2021-30952) | Photon (CVE-2023-32434) | WebKit fixed 15.2; Photon starts at 14.5 |
-| **15.2 – 15.5.x** | `jacurutu` (CVE-2022-48503) | Photon (CVE-2023-32434) | WebKit fixed 15.6 |
-| **15.6 – 16.1.2** | `bluebird` (CVE unconfirmed) | Photon (CVE-2023-32434) through 15.7.6; Gallium (CVE-2023-38606) as fallback | bluebird CVE not publicly identified |
-| **16.2 – 16.3.1** | `terrorbird` (CVE-2023-43000) | CVE-2023-32434 still open + IronLoader sandbox escape | IronLoader provides sandbox escape on 16.0–16.3.1 |
-| **16.4 – 16.5** | `terrorbird` (CVE-2023-43000) | Parallax (CVE-2023-41974) | Parallax starts at 16.4 |
-| **16.5.1** | `terrorbird` (CVE-2023-43000) | Parallax (CVE-2023-41974) | CVE-2023-32434 just patched but Parallax still open |
-| **16.6 – 16.7** | `cassowary` (CVE-2024-23222) | Parallax (CVE-2023-41974) | Kit jumps to entirely new WebKit chain here |
-| **16.7.1 – 16.7.4** | `cassowary` (CVE-2024-23222) | CVE-2024-23225/23296 | Parallax patched in 17.0 (not backported to 16.7.x?) |
-| **17.0 – 17.2.1** | `cassowary` (CVE-2024-23222) | Sparrow (CVE-2024-23225) + Rocket (CVE-2024-23296) | Ceiling: WebKit fixed 17.3 |
+| **17.0 – 17.2.1** | `cassowary` · CVE-2024-23222 | Sparrow · CVE-2024-23225 + Rocket · CVE-2024-23296 | WebKit fixed 17.3 |
+| **16.6 – 16.7.4** | `cassowary` · CVE-2024-23222 | Parallax · CVE-2023-41974 (16.6–16.7) then CVE-2024-23225/23296 (16.7.1+) | WebKit fixed 16.7.5 |
+| **16.7.5** | — | CVE-2024-23225 still open | **Dead — WebKit patched, no RCE** |
+| **16.4 – 16.5.1** | `terrorbird` · CVE-2023-43000 | Parallax · CVE-2023-41974 | WebKit fixed 16.6 |
+| **16.2 – 16.3.1** | `terrorbird` · CVE-2023-43000 | CVE-2023-32434 + IronLoader · CVE-2023-32409 (sandbox escape) | IronLoader fixed 16.5 |
+| **15.6 – 16.1.2** | `bluebird` · CVE unconfirmed | Photon · CVE-2023-32434 (through 15.7.6) / Gallium · CVE-2023-38606 (fallback) | bluebird CVE not publicly mapped |
+| **15.2 – 15.5.x** | `jacurutu` · CVE-2022-48503 | Photon · CVE-2023-32434 | WebKit fixed 15.6 |
+| **14.5 – 15.1.1** | `buffout` · CVE-2021-30952 | Photon · CVE-2023-32434 | WebKit fixed 15.2; Photon starts 14.5 |
+| **14.2 – 14.4** | `buffout` · CVE-2021-30952 | — | **Gap — Neutron patched, Photon starts 14.5** |
+| **13.0 – 14.1** | `buffout` · CVE-2021-30952 | Neutron · CVE-2020-27932 + Dynamo · CVE-2020-27950 | Both patched 14.2 |
 
-**Where chains break:**
-
-| Version | What died | Detail |
-|---|---|---|
-| iOS 14.2 | Kernel | Neutron/Dynamo patched; kit needs Photon (starts at 14.5) |
-| **iOS 14.2 – 14.4** | **Gap** | Neutron/Dynamo patched, Photon doesn't target below 14.5 |
-| iOS 15.2 | WebKit | `buffout` patched; kit switches to `jacurutu` |
-| iOS 15.6 | WebKit | `jacurutu` patched; kit switches to `bluebird` |
-| iOS 16.5.1 | Kernel | CVE-2023-32434 patched; Parallax covers 16.4+ |
-| iOS 16.6 | WebKit | `terrorbird` (CVE-2023-43000) patched; kit jumps to `cassowary` |
-| **iOS 16.7.5** | **WebKit** | **CVE-2024-23222 patched — no full chain** (kernel still open but no RCE to reach it) |
-| iOS 17.3 | WebKit | CVE-2024-23222 patched — chain dead |
-| iOS 17.4 | Kernel | Sparrow/Rocket patched — everything dead |
+**Dead above iOS 17.3** (WebKit) / **17.4** (kernel). CVE associations from the [Google TAG report](https://cloud.google.com/blog/topics/threat-intelligence/coruna-powerful-ios-exploit-kit) and [Hacker News](https://thehackernews.com/2026/03/coruna-ios-exploit-kit-uses-23-exploits.html); Google TAG notes some may be revised. Target ranges reflect where the kit deploys each exploit (version-specific offsets), which may be narrower than the CVE's full vulnerable range.
 
 ## Chain at a Glance
 
