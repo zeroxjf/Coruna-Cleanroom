@@ -1,102 +1,74 @@
 # iOS-Coruna-Reconstruction
 
-Clean-room reconstruction of the **Coruna** iOS exploit chain. The browser-stage notes span **iOS 16.2 – 17.2.1**; the documented native chain in this repo is strongest for **iOS 16.3+**.
+Clean-room reconstruction of the **Coruna** iOS exploit chain (iOS 16.2 – 17.2.1), reverse-engineered from the live mirror using IDA Pro.
 
-## Coverage Split
+Coruna is a full-chain browser-to-kernel exploit delivered via WebKit. It chains a JSC type-confusion, an `Intl.Segmenter`/BreakIterator PAC bypass, and a custom IOGPU/AGX + IOSurface kernel exploit into persistent code execution — then cleans up after itself.
 
-- **iOS 16 path:** `terrorbird` Stage1 on `16.2–16.5.1`, then the older `seedbell` branch on `16.3–16.5.1`
-- **iOS 17 path:** `cassowary` Stage1 on `16.6–17.2.1`, plus `seedbell_pre` and the newer `seedbell` branch on `17.0–17.2.1`
-- **Shared native path in the notes:** the documented chain includes `Stage3_VariantB.js`, `bootstrap.dylib`, record `0x80000`, record `0x90000`, record `0x90001`, and `TweakLoader`; this standalone repo discusses those artifacts but does not ship most of them
-- **Current implementation gap:** the least-finished part is still the per-version native `0x90000` logic, especially on newer firmware
-
-## Chain Overview
+## Chain at a Glance
 
 ```
-┌──────────────────────────────┐
-│  index.html                  │
-│  Fingerprint device/iOS,     │
-│  select stage payloads       │
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│  Stage 1 — Browser Primitive │
-│                              │
-│  "terrorbird" 16.2–16.5.1    │
-│  "cassowary"  16.6–17.2.1    │
-│                              │
-│  JIT/speculation bug         │
-│  → JSC heap corruption       │
-│  → addrof / fakeobj          │
-│  → arb read64/write64        │
-│    via WASM-backed views     │
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│  Stage 2 — PAC Bypass        │
-│  ("seedbell")                │
-│                              │
-│  16.x + 17.x branches        │
-│  JS r/w → arm64e PAC         │
-│  sign/auth/call via          │
-│  BreakIterator abuse         │
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│  Stage 3 — Native Loader     │
-│                              │
-│  Rebuild 0xF00DBEEF record,  │
-│  map bootstrap.dylib,        │
-│  jump to _process            │
-└──────────────┬───────────────┘
-               ▼
-┌──────────────────────────────┐
-│  Post-Exploit                │
-│                              │
-│  bootstrap.dylib             │
-│  → orchestrator (0x80000)    │
-│  → driver (0x90000)          │
-│  → TweakLoader (0xF0000)     │
-│  → extract Mach-O            │
-│  → patch dyld lib-valid      │
-│  → dlopen → next_stage_main  │
-└──────────────────────────────┘
+index.html ─── fingerprint device, select stages
+     │
+     ▼
+ Stage 1 ───── WebKit JSC type-confusion
+                "terrorbird" (16.2–16.5.1) / "cassowary" (16.6–17.2.1)
+                → addrof / fakeobj / arb r/w via WASM-backed views
+     │
+     ▼
+ Stage 2 ───── PAC bypass ("seedbell")
+                corrupt Intl.Segmenter / ICU BreakIterator
+                → pacda / pacia / autda / autia / indirect call
+     │
+     ▼
+ Stage 3 ───── native loader
+                rebuild 0xF00DBEEF container from manifest
+                map bootstrap.dylib, jump to _process
+     │
+     ▼
+ bootstrap ─── select payload hash, fetch via JS/native bridge
+     │
+     ├─ 0x80000  orchestrator: resolve _driver, launch worker
+     ├─ 0x90000  kernel exploit: IOSurface + IOGPU/AGX + PPL
+     │           → sandbox/AMFI/developer-mode policy patches
+     ├─ 0xA0000  anti-forensics: delete crash reports, diagnostics,
+     │           WebKit caches, analytics aggregates
+     └─ 0xF0000  TweakLoader: extract embedded Mach-O, bypass
+                 dyld lib-validation, dlopen → next_stage_main
 ```
 
-## Disclaimer
+## What's Recovered
 
-This repository was assembled primarily with Codex GPT-5.4 xhigh across multiple iterative passes — not a single one-shot generation. Each pass refined and cross-checked the previous output against disassembly, decompilation, the original live mirror, the internal exploit-chain writeup, and known chain behavior, but the results are still AI-assisted inferences. There may be mistakes, omissions, or misinterpretations. Verify offsets, structures, control flow, primitives, and behavioral conclusions against the original binaries, firmware images, and live test devices before relying on any part of it.
+| Area | Status |
+|---|---|
+| Chain shape and stage selection | Fully traced through both iOS 16 and 17 paths |
+| Stage 1 (JSC primitives) | Mechanics documented for both `terrorbird` and `cassowary` |
+| Stage 2 (PAC bypass) | Gadget chains and corruption path documented for all `seedbell` branches |
+| Stage 3 (native loader) | Container format, JS/native bridge protocol, bootstrap mapping all recovered |
+| `bootstrap.dylib` | `_process`, callback registry, anti-analysis checks, selector/manifest resolution, LZMA decompression |
+| `0x80000` orchestrator | Full dispatch flow through `_start` → `_startl` → worker → `sub_7410` → `_startr` across two variants |
+| `0x90000` kernel exploit | Vtable, IOSurface pivot, policy patching, selector contracts, terminal helper families |
+| `0xA0000` cleanup | Fully decompiled — targets, helper functions, entry contract |
+| `0xF0000` TweakLoader | Exports, dyld bypass, embedded `__SBTweak` extraction, `next_stage_main` contract |
+| `prefix32` sideband | Traced to native consumption in `sub_6BA0` |
+| Record contracts | 14 record IDs mapped including 3 runtime-synthesized (`0x10000`, `0x30000`, `0x40000`) |
+| Clean-room C contracts | Compile-checked headers and validation helpers |
 
-This standalone repo is a distilled publication, not the original workspace. Some long-form notes cite the original `live-site/` mirror and an internal writeup as provenance; those private inputs were used during reconstruction but are intentionally not included here to avoid redistributing the original chain.
-
-## Scope
-
-The focus here is reconstructing the exploit chain without the original malware packaging and delivery behavior.
-
-Current status:
-
-- strong RE dossier for the chain shape and record formats
-- compile-checked clean-room contracts and loader-side helper code
-- supporting tooling for payload inspection and Stage3 output rebuilds
-- not yet a finished end-to-end clean exploit implementation
+**Remaining gap:** source-equivalent reconstruction of the per-version `0x90000` kernel exploit logic.
 
 ## Layout
 
-- [`docs/FULL_RECONSTRUCTION.md`](docs/FULL_RECONSTRUCTION.md)
-  - detailed exploit-chain reconstruction notes
-- [`docs/CLEAN_ROOM_BLUEPRINT.md`](docs/CLEAN_ROOM_BLUEPRINT.md)
-  - clean-room module boundaries and implementation plan
-- [`clean-room/README.md`](clean-room/README.md)
-  - notes specific to the clean-room source tree
-- [`clean-room/include/coruna_contracts.h`](clean-room/include/coruna_contracts.h)
-  - recovered ABI and record definitions
-- [`clean-room/include/coruna_stage_loader.h`](clean-room/include/coruna_stage_loader.h)
-  - loader-side record-store and worker-pack contracts
-- [`tools/coruna_payload_tool.py`](tools/coruna_payload_tool.py)
-  - helper for payload/record inspection and Stage3 output rebuilds
+```
+docs/
+  FULL_RECONSTRUCTION.md    full chain reconstruction notes
+  CLEAN_ROOM_BLUEPRINT.md   module contracts and implementation plan
+clean-room/
+  include/                  recovered ABI: record IDs, structs, vtable layouts
+  src/                      validation helpers, record-store logic
+tools/
+  coruna_payload_tool.py    payload inspection, container rebuilds, section extraction
+```
 
-## Verification
-
-From the repo root:
+## Quick Verification
 
 ```sh
 clang -std=c11 -Wall -Wextra -Werror -Iclean-room/include -fsyntax-only \
@@ -106,4 +78,8 @@ clang -std=c11 -Wall -Wextra -Werror -Iclean-room/include -fsyntax-only \
 python3 -m py_compile tools/coruna_payload_tool.py
 ```
 
-These checks catch syntax drift only. They do not validate reconstructed control flow, offsets, record layouts, or behavior against the original artifacts.
+## Disclaimer
+
+This repo was built iteratively with AI-assisted analysis (Codex, Claude) cross-checked against IDA decompilation, the original live mirror, and firmware artifacts. There will be mistakes. Verify everything against the actual binaries before relying on it.
+
+The original exploit binaries, JS stages, and IPSW firmware are intentionally excluded to avoid redistributing the chain.
