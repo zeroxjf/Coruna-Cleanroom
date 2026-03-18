@@ -55,7 +55,7 @@ index.html ─── fingerprint device, select stages
 | Record contracts | 14 record IDs mapped including 3 runtime-synthesized (`0x10000`, `0x30000`, `0x40000`) |
 | Clean-room C contracts | Compile-checked headers and validation helpers |
 
-**Remaining gap:** the specific kernel object field being corrupted in `sub_E418` → `sub_F1F8` and the exact vulnerability class — everything up to and after that point is traced.
+**Vulnerability class identified:** IOSurface/IOGPU info leak → pmap permission escalation (PPL bypass). No classic memory corruption — the primitive is built from IOKit external method info disclosure, controlled surface memory mapping, and pmap permission flag writes on existing kernel objects.
 
 ## Layout
 

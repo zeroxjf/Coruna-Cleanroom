@@ -843,18 +843,63 @@ The scan starts from the IOSurface base plus `0x10000000` and walks upward. When
 
 The **initial address correlation** comes from the IOSurface `kIOSurfaceMemoryRegion` property — by controlling the memory region the surface is allocated from, the exploit influences the kernel address of the backing store. The `IOSurfaceGetBaseAddress` return and the userclient's ability to read/write the backing give the necessary kernel memory access.
 
-##### Kernel object location and corruption (`sub_E418`)
+##### Kernel address leak via IOGPU/IOSurface selectors (`sub_DDBC`)
+
+`sub_DDBC` derives kernel virtual addresses through two SoC-dependent paths:
+
+**IOGPU path** (capability `0x8000`, used on A14+):
+- Reads kernel address components from IOGPU external method selectors at `0x20AE00008` through `0x20AE00030` (6–8 sequential 32-bit reads).
+- Combines pairs of 32-bit values into 64-bit kernel virtual addresses.
+- Computes a base address for the scan range from the GPU firmware region metadata.
+
+**IOSurface path** (capability `89670209`, non-IOGPU SoCs):
+- Reads IOSurface external method selectors `0x200000680`/`0x200000684` (or `0x2000007E4`/`0x2000007E8` depending on CPU family).
+- The result is a page index; multiplied by `page_size` and added to the IOSurface base → kernel address.
+- These selectors expose page table or allocation metadata from the IOSurface userclient.
+
+After deriving the base address, `sub_DDBC` calls `sub_E22C` to scan the kernel heap.
+
+##### Kernel heap scan for IOKit objects (`sub_E22C` → `sub_F07C`)
+
+`sub_E22C` scans backward from the derived address at page-size stride, reading a 32-bit value at each page via the userclient callback. It looks for the marker `0xFEEBDAED` — an IOKit allocation/metadata signature present in IOSurface-related kernel heap objects.
+
+When `0xFEEBDAED` is found, `sub_F07C` validates the surrounding structure:
+- Checks a count field in range 9–63
+- Checks a type field == 2
+- Checks a size field <= 2 × page_size
+- Iterates embedded descriptors looking for type `5` entries
+- Reads 272 bytes from the type-5 entry and validates that an embedded pointer at offset ~256 falls within the known kernel text range (`ctx+40` to `ctx+48`)
+
+If validation passes, the address is stored at `ctx + 56` and used as the anchor for subsequent parsing.
+
+##### Kernel object parse and offset computation (`sub_E418` → `sub_E2FC`)
 
 `sub_E418` takes two callbacks (`sub_667C` for read, `sub_7024` for write) and:
 
-1. Calls `sub_DDBC` for initial setup.
+1. Calls `sub_DDBC` to derive the kernel address and locate the IOKit heap object.
 2. Reads via the callback from a version-dependent address; expects magic `0x484A4A06`.
-3. Allocates 0x4000 bytes and reads 4 pages of kernel memory via the callback.
-4. Calls `sub_E2FC(buffer, 0x4000, cpu_capabilities, ctx+120, &v89, state)` to parse the read data and locate the target kernel object chain.
-5. Computes a version-specific corruption offset based on kernel address range thresholds (`0x1F52FFFFFFFFFFFF`, `0x225C1E803FFFFF`, etc.) and CPU capability bits. The offsets range from `0x4000000` to `0x7B00000` depending on the exact kernel/SoC combination.
-6. Calls `sub_F1F8(ctx, computed_offset + base, base + 0x2000000)` — this is the **corruption step** that writes to the located kernel object.
+3. Allocates 0x4000 bytes and reads 4 pages of kernel memory.
+4. Calls `sub_E2FC` to parse the read data. `sub_E2FC` searches for the marker `0x6874616D` ("math" in ASCII) — a structural signature in the IOSurface kernel object property metadata. When found, it extracts an entry count, iterates entries at stride 8 (or 6 on xnu-8796+), and looks for an entry with value `24`. From the matching entry it extracts two pointer-sized values and computes the final IOSurface kernel object address.
+5. Computes a version-specific scan offset (ranging from `0x4000000` to `0x7B00000`) based on kernel address thresholds and CPU capability bits.
+6. Calls `sub_F1F8` to verify the corruption target.
 
-After `sub_E418` succeeds, `sub_B8F8` computes version-dependent struct offsets for the IOSurface kernel object layout (field positions change across xnu-7195 through xnu-10002).
+##### IOSurface object verification (`sub_F1F8`)
+
+`sub_F1F8` is a **verification scanner**, not the corruption itself. It scans at IOSurface kernel object allocation strides, which are version-dependent:
+
+| XNU build | Stride (bytes) |
+|---|---|
+| 7195 | 280 |
+| 8019 | 296 |
+| 8020 | 160 |
+| 8792/8796 | 192 |
+| 10002 | 208 |
+
+At each candidate offset within a page, it reads 32 bytes and calls `sub_F410` to compare the first 16 bytes against an expected IOSurface header pattern (`xmmword_37440` / `xmmword_37430`), then validates the next two qwords as valid kernel pointers. When a match is found, the address is stored at `ctx + 136` as the confirmed IOSurface kernel object.
+
+##### Version-dependent struct offsets (`sub_B8F8`)
+
+After `sub_E418` succeeds, `sub_B8F8` computes the IOSurface kernel object field layout. Key offset tables map XNU build → struct field positions for the IOSurface backing pointer, pmap pointer, and page table entry locations. These offsets change substantially across xnu-7195 through xnu-10002.
 
 ##### Three exploitation tiers
 
@@ -905,6 +950,18 @@ Fd-pair only approach:
 4. Publishes kernel object at `state + 6608`.
 
 All three paths retry up to 5 times on failure (error code 258054).
+
+##### Vulnerability class
+
+The exploit is a **multi-stage IOSurface/IOGPU information disclosure → pmap permission escalation chain**, not a single memory corruption bug:
+
+1. **KASLR defeat**: IOGPU external method selectors (`0x20AE000xx`) and IOSurface selectors (`0x20000068x`/`0x2000007Ex`) expose kernel address components (page indices, virtual address fragments) from GPU firmware metadata and surface allocation internals.
+2. **Kernel heap read**: The IOSurface userclient's memory-mapped backing region, combined with controlled `kIOSurfaceMemoryRegion` allocation, provides a window into kernel heap memory that the exploit uses to scan for IOKit object metadata (`0xFEEBDAED` markers, "math" structural signatures).
+3. **IOSurface object identification**: The exploit locates a specific IOSurface kernel object by scanning at the version-dependent allocation stride (160–296 bytes) and matching the 32-byte header pattern. The "math" parse extracts the object's relationship to the pmap hierarchy.
+4. **pmap permission modification**: The final writes target the IOSurface's pmap-related structure fields — `pmap_ptr + 32` (1-byte enable) and `pmap_ptr + 116` (set `0x1000` bit in permission flags). This modifies page table protections to grant the userspace process a direct read/write mapping into kernel memory via a subsequent `mach_make_memory_entry` + `vm_map`.
+5. **No classic corruption**: There is no use-after-free, heap overflow, or type confusion. The primitive is built entirely from information disclosure through IOKit external methods, controlled memory mapping, and permission flag manipulation on existing kernel objects.
+
+The vulnerability class is best described as a **PPL bypass via IOSurface/IOGPU info leak + pmap permission escalation**, consistent with the IOSurface-class kernel exploits that Apple has patched across iOS 15–17.
 
 #### 6. Kernel read/write primitives
 
@@ -1283,7 +1340,8 @@ Remaining lower-priority unknowns:
 - the `platform_module.js` version offset table maps specific iOS builds to internal offset keys, but the mapping between those keys and the native chain's kernel-version thresholds has not been cross-referenced
 - the three state-inheritance trigger functions (`sub_9DC8`/`sub_13C5C`/`sub_1393C`) are now fully traced — they inherit pre-published kernel state via voucher recipes and shared memory
 - the initial kernel address leak mechanism is now traced: `sub_72EC` uses the IOSurface `kIOSurfaceMemoryRegion` property to control backing store allocation, then scans kernel memory through the surface's userclient interface
-- the corruption trigger `sub_E418` → `sub_F1F8` is identified but the specific kernel object field being corrupted and the exact vulnerability class (use-after-free, type confusion, race condition, etc.) are not yet pinned down from static analysis alone
+- the vulnerability class is now identified: IOSurface/IOGPU info leak → pmap permission escalation. `sub_F1F8` is a verification scanner (not the corruption), `sub_F07C` validates IOKit heap structures, and the actual pmap writes happen in the `sub_8A48` main body after the target IOSurface kernel object is located
+- the exact IOSurface userclient selector used for the initial kernel heap read (inside `sub_719C`) and the specific `IOConnectCallMethod` parameters that trigger the controlled allocation have not been fully decomposed, but the mechanism is clear
 
 Resolved chain shape:
 
