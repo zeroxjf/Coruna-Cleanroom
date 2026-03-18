@@ -1,6 +1,6 @@
 # iOS-Coruna-Reconstruction
 
-Reverse-engineering reconstruction of the [**Coruna**](https://cloud.google.com/blog/topics/threat-intelligence/coruna-powerful-ios-exploit-kit) iOS exploit kit — 5 full chains, 23 exploits, **iOS 13 – 17**. This repo focuses on the **iOS 16/17 chains**. Analyzed from the live mirror using IDA Pro. **This is a research analysis, not a working exploit or jailbreak tool.**
+Reverse-engineered reconstruction of the [**Coruna**](https://cloud.google.com/blog/topics/threat-intelligence/coruna-powerful-ios-exploit-kit) iOS exploit kit — 5 full chains, 23 exploits, **iOS 13 – 17**. This repo focuses on the **iOS 16/17 chains**. Analyzed from the live mirror using IDA Pro. **This is research analysis (not a working exploit or jailbreak tool).**
 
 Coruna combines multiple WebKit RCEs (type confusion, UAF, integer overflow, bounds check bypass), PAC bypasses, sandbox escapes, and kernel exploits to achieve persistent code execution on targeted iOS versions. Based on [Duy Tran](https://github.com/khanhduytran0)'s [coruna](https://github.com/khanhduytran0/coruna) repo (malware-stripped binaries), with the live-site mirror hosted by [34306](https://github.com/34306) and [Nick Chan](https://github.com/asdfugil).
 
