@@ -27,6 +27,31 @@ Individual vulnerabilities were patched at different iOS versions. The kit uses 
 
 Note: CVE associations are from the [Google TAG report](https://cloud.google.com/blog/topics/threat-intelligence/coruna-powerful-ios-exploit-kit) which states some may be subject to revision as their analysis is ongoing.
 
+### Full-Chain Windows
+
+A full chain requires both a WebKit RCE **and** a kernel exploit to be unpatched on the same iOS version. Cross-referencing the patch dates gives these windows:
+
+| iOS range | WebKit RCE | Kernel exploit |
+|---|---|---|
+| **13.0 – 14.1** | CVE-2021-30952 | CVE-2020-27932 + CVE-2020-27950 |
+| **14.2 – 15.1.1** | CVE-2021-30952 | CVE-2023-32434 |
+| **15.2 – 15.5.x** | CVE-2022-48503 | CVE-2023-32434 |
+| **15.6 – 16.5** | CVE-2023-43000 | CVE-2023-32434 |
+| **16.5.1** | CVE-2023-43000 | CVE-2023-38606 (32434 just patched, 38606 still open) |
+| **16.6 – 16.7.4** | CVE-2024-23222 | CVE-2024-23225 + CVE-2024-23296 |
+| **17.0 – 17.2.1** | CVE-2024-23222 | CVE-2024-23225 + CVE-2024-23296 |
+
+**Where chains break:**
+
+| Version | What died | Detail |
+|---|---|---|
+| iOS 14.2 | Kernel | CVE-2020-27932/27950 patched; kit falls back to CVE-2023-32434 |
+| iOS 16.5.1 | Kernel | CVE-2023-32434 patched; kit falls back to CVE-2023-38606 |
+| iOS 16.6 | WebKit + kernel | CVE-2023-43000 AND CVE-2023-38606 both patched; kit jumps to entirely new chain |
+| **iOS 16.7.5** | **WebKit** | **CVE-2024-23222 patched — no full chain** (kernel CVE-2024-23225 still open but no RCE to reach it) |
+| iOS 17.3 | WebKit | CVE-2024-23222 patched — chain dead |
+| iOS 17.4 | Kernel | CVE-2024-23225/23296 patched — everything dead |
+
 ## Chain at a Glance
 
 ```
