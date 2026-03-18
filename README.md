@@ -65,10 +65,12 @@ index.html ─── fingerprint device, select stages
 Based on IDA Pro analysis of:
 
 - `live-site/index.html`, `Stage1_*.js`, `Stage2_*.js`, `Stage3_VariantB.js`
-- `live-site/payloads/bootstrap.dylib` and `entry*.dylib` / `entry*.bin` across 19 payload hashes
+- `live-site/payloads/bootstrap.dylib` and `entry*.dylib` / `entry*.bin` across 20 payload sets (19 entry-based containers + 1 raw passthrough set)
 - `live-site/TweakLoader/.theos/obj/arm64*/TweakLoader.dylib`
 - `EXPLOIT_CHAIN_WRITEUP.md` (internal provenance)
 - 17.0.3 IPSW-derived dyld and XNU artifacts
+
+These `live-site/*` references are provenance inputs from the private research mirror; the publication keeps only clean-room outputs and documentation.
 
 ## End-to-End Shape
 
@@ -1541,6 +1543,10 @@ python3 tools/coruna_payload_tool.py build-container \
   --output /tmp/377bed.container
 
 # Extract embedded __SBTweak
+python3 tools/coruna_payload_tool.py list-sections \
+  live-site/TweakLoader/.theos/obj/arm64e/TweakLoader.dylib \
+  --arch arm64e
+
 python3 tools/coruna_payload_tool.py extract-section \
   live-site/TweakLoader/.theos/obj/arm64e/TweakLoader.dylib \
   --segment __TEXT --section __SBTweak \
@@ -1548,11 +1554,13 @@ python3 tools/coruna_payload_tool.py extract-section \
 
 # Inspect small records
 python3 tools/coruna_payload_tool.py inspect-record \
-  live-site/payloads/377bed.../entry6_type0x07.bin
+  live-site/payloads/377bed7460f7538f96bbad7bdc2b8294bdc54599/entry6_type0x07.bin
 
 python3 tools/coruna_payload_tool.py inspect-record \
-  live-site/payloads/377bed.../entry3_type0x07.bin
+  live-site/payloads/377bed7460f7538f96bbad7bdc2b8294bdc54599/entry3_type0x07.bin
 ```
+
+`--emulate-live-stage3` matches live Stage3 behavior by rewriting `entry2_type0x0f.dylib` to local `TweakLoader.dylib` and, on trimmed mirrors, backfilling missing `entry1_type0x0a.bin` from a deterministic in-tree fallback copy.
 
 ## Clean-Room Source
 
