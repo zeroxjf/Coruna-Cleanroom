@@ -41,7 +41,7 @@ The live chain is:
 3. Stage2 converts the JS primitive into PAC-aware `sign/auth/call` primitives on arm64e.
 4. Stage3 rebuilds a `0xF00DBEEF` record container from `payloads/manifest.json`, maps `bootstrap.dylib`, and jumps to `_process`.
 5. `bootstrap.dylib` runs environment checks, spins up the background worker, and uses the JS/native shared buffer to request a payload bundle by hash.
-6. Record `0x80000` is the orchestrator dylib. It resolves `0x90000` as `_driver`, obtains a vtable-backed driver object, then continues the native chain.
+6. Record `0x80000` is the main native dispatch dylib. It resolves `0x90000` as `_driver`, obtains a vtable-backed driver object, then continues the native chain.
 7. Record `0xF0000` is the live TweakLoader slot. In the live mirror, Stage3 rewrites it to local `TweakLoader.dylib`.
 8. `TweakLoader.dylib` extracts its embedded `__TEXT,__SBTweak` Mach-O to `/tmp/actual.dylib`, patches dyld lib-validation, `dlopen`s the extracted Mach-O, and calls its exported `next_stage_main`.
 9. The embedded `__SBTweak` installs lockscreen/SpringBoard hooks and draws a visible “LOCKSCREEN COMPROMISED / PWNED” overlay.
@@ -227,6 +227,11 @@ Important anchors:
 
 ## Native Bootstrap: `bootstrap.dylib`
 
+For this section:
+
+- callbacks, slot layouts, request formats, selector-record structure, record IDs, and call sequences are **Verified**
+- labels such as "bootstrap", "anti-analysis gate", "downloader bridge", and "selector parser" are **Inferred** from role and data flow
+
 ### `_process` at `0x68d8`
 
 `_process`:
@@ -244,7 +249,7 @@ Important anchors:
 
 ### `sub_71FC` at `0x71fc`
 
-This is the anti-analysis gate:
+This routine acts as an environment / anti-analysis gate. The checks below are **Verified**; the label is **Inferred** from their effect:
 
 - `stat("/usr/libexec/corelliumd")`
 - `sandbox_check(..., "iokit-get-properties", ...)`
@@ -255,7 +260,7 @@ It returns a single-byte environment verdict via the caller-supplied pointer.
 
 ### `sub_987C` at `0x987c`
 
-This is the JS/native downloader bridge:
+This routine acts as the JS/native request bridge. The buffer protocol below is **Verified**; the downloader-bridge label is **Inferred** from the surrounding JS interaction:
 
 - waits on a semaphore
 - writes the primary request string at full-buffer offset `+0x4` (`bytes + 0x0` once the leading opcode dword is skipped)
@@ -268,7 +273,7 @@ That matches `Stage3_VariantB.js:wA()` and `feedRawBuffer()` exactly.
 
 ### `sub_9CB8` at `0x9cb8` and `sub_9F18` at `0x9f18`
 
-These parse the raw `0x12345678` selector record and choose the right payload hash for the current environment.
+These routines parse the raw `0x12345678` selector record and choose the payload hash for the current environment. The structure walk and returned values are **Verified**; the selector-parser framing is **Inferred** from their role.
 
 The selector key is built from:
 
@@ -317,7 +322,7 @@ Additional selector findings from the recovered 14 blobs:
 - Stage3 stores the raw sideband field unchanged as `fixedValue2` / `cA` and concatenates it into the generated native payload buffer; it does not hash, decrypt, or verify it on the JS side
 - the `prefix32` value is invariant for a given selected asset across payload-set variants, but it is not the SHA1 or SHA256 of the recovered `.min.js` bytes
 
-That makes `prefix32` best described as opaque per-selected-payload sideband metadata for the native stages. It is not part of selector matching, it is not a plain filename or file-content digest, and the visible JS/runtime side does not use it as decryption or verification material.
+That makes `prefix32` best described as opaque per-selected-payload sideband metadata for the native stages. The JS-side handling and invariance are **Verified**; ruling out selector, filename, digest, decrypt, or verifier semantics is **Inferred** from the recovered usage.
 
 ### `sub_8430` at `0x8430`
 
@@ -328,14 +333,14 @@ This is the LZMA decompressor:
 
 ### `sub_6C44` and `sub_5FEC`
 
-The worker and setup path do the post-bootstrap setup:
+The worker and setup path perform the handoff from bootstrap setup into the native chain. The concrete actions below are **Verified**; the "post-bootstrap setup" label is **Inferred**:
 
 - background task registration through `UIApplication`
 - optional SIGSEGV wrapper for some branches
 - fetch record `0x70000`
 - decide between direct inherited mappings and a helper mapping path
 - fetch and activate record `0x80000`
-- continue into the orchestrator dylib
+- continue into the `0x80000` native dispatch dylib
 
 ## Record Contracts
 
@@ -352,28 +357,28 @@ The stable record IDs in the modern payload sets are:
 
 The filename is secondary after Stage3 rebuilds the container. `f1` is the real contract.
 
-Resolved role split:
+Resolved role split. Record IDs and consumers are **Verified**; the role labels are **Inferred** from call sites and control flow:
 
 - `0x50000` is a raw arm64 helper loader blob used only on the auxiliary bootstrap path.
-- `0x90000` is the main post-exploit driver object resolved by `0x80000`.
+- `0x90000` is the main driver object resolved by `0x80000`.
 - `0x90001` is a transient helper-driver object used by bootstrap to control `0x50000`.
-- `0xA0000` is the anti-forensics cleanup module invoked from the `sub_7410` worker-thread dispatch path before `_startr`.
+- `0xA0000` is the cleanup module invoked from the `sub_7410` worker-thread dispatch path before `_startr`.
 
-Additionally, the `0x80000` orchestrator internally references at least three record IDs that do not appear in the Stage3 manifest:
+Additionally, the `0x80000` image internally references at least three record IDs that do not appear in the Stage3 manifest:
 
 - `0x10000`: loaded image from which `_startx` is resolved (in the `sub_6BA0` / `_startr` continuation path).
 - `0x30000`: loaded image from which `_starti` is resolved (in the `sub_BA2C` multi-path activation).
 - `0x40000`: data blob passed as input to `_starti`.
 
-These records are not present in `payloads/manifest.json` and are not fetched from the JS side via `buildContainer()`. Resolution of `_startx` (from `0x10000`) and `_starti` (from `0x30000`) is **optional** — the orchestrator handles lookup failures gracefully and continues without them. They likely exist only in specific deployment configurations or are written by stages not present in all payload sets. When `0x30000` is absent, `sub_BA2C` returns error `708614`, which the caller handles as a non-fatal condition.
+These records are not present in `payloads/manifest.json` and are not fetched from the JS side via `buildContainer()`. Their backing records are configuration-dependent and may be absent in some runs, but the exact non-fatal handling is path-specific rather than universal: `_startx` lookup from `0x10000` is skipped when the resolver returns an error, while `sub_BA2C` returns `708614` when `0x30000` is absent and callers decide whether that is fatal. Their runtime origin remains untraced.
 
 ## `0x50000` And `0x90001`: Auxiliary Bootstrap Helper Path
 
-This pair is only used in the fallback/helper mapping branch inside `bootstrap.dylib:sub_5FEC`.
+This pair is only used in the fallback/helper mapping branch inside `bootstrap.dylib:sub_5FEC`. The branch membership is **Verified**; calling it the auxiliary helper path is **Inferred** from its role.
 
 ### `0x90001`
 
-`0x90001` (`entry5_type0x09.dylib`) exports `_driver` just like `0x90000`, but bootstrap uses it differently.
+`0x90001` (`entry5_type0x09.dylib`) exports `_driver` just like `0x90000`, but bootstrap uses it differently. The export surface and bootstrap call pattern are **Verified**; its distinction as a separate control-plane object is **Inferred**.
 
 Recovered interface object from `_driver`:
 
@@ -417,11 +422,11 @@ Recovered command dispatch in `sub_3F758`:
 - `0x4000001B` -> `sub_3C354(a1)` after version/feature gating; this is the state-setting path
 - `0xC000001B` -> `sub_3CA24(...)` after the same gating; this is the readback/query path and returns three booleans from task-linked flags
 
-So `0x90001` is not the main exploit service object. It is the bootstrap-time control plane for the helper mapping path.
+So `0x90001` is not the main exploit service object used by the later `0x80000` / `0x90000` path. Its description as a bootstrap-time control plane for helper mapping is **Inferred** from the observed command set and call context.
 
 ### `0x50000`
 
-`0x50000` (`entry4_type0x05.bin`) is raw arm64 position-independent code. It is not a plain data blob, and it is not a stripped Mach-O.
+`0x50000` (`entry4_type0x05.bin`) is raw arm64 position-independent code. It is not a plain data blob, and it is not a stripped Mach-O. Those format properties are **Verified**.
 
 Recovered structure:
 
@@ -456,7 +461,7 @@ Observed live-use sequence in `bootstrap.dylib:sub_5FEC`:
 
 - `ctx + 0xF8` is called with record id `0x80000`, which routes the `0x80000` record bytes and length into the `0x50000` loader
 - `ctx + 0x108` is then called with record id `0x80000` to recover the loaded-image handle
-- `ctx + 0x38` is called with that handle and the string `"_start"` to resolve the orchestrator entrypoint
+- `ctx + 0x38` is called with that handle and the string `"_start"` to resolve the `0x80000` entrypoint
 - bootstrap calls the resolved `_start` directly with `x0 = ctx`
 - `ctx + 0x100` is then called with record id `0x80000` to unload / clear the temporary loaded-image handle
 
@@ -471,7 +476,7 @@ The embedded string table includes:
 - `/System/Library/Frameworks/JavaScriptCore.framework/JavaScriptCore`
 - `JSEvaluateScript`
 
-That makes `0x50000` best described as a flat manual-loader/runtime module with syscall veneers and embedded loader metadata. In live use it is not just a helper-control blob: bootstrap installs it, uses it to load record `0x80000`, resolves `_start`, executes that entrypoint, and then unloads the temporary loaded image.
+That makes `0x50000` best described as a flat manual-loader/runtime module with syscall veneers and embedded loader metadata. The loader behavior and live-use sequence are **Verified**; the "manual-loader/runtime module" label is **Inferred** from those mechanics.
 
 ### IPSW / Firmware Correlation For The Helper Path
 
@@ -487,7 +492,7 @@ Primary-source backing:
 - in XNU, `TASK_DYLD_INFO` returns only `all_image_info_addr`, `all_image_info_size`, and format from `task->all_image_info_*`
 - XNU exec paths copy in the dyld anchor structure as metadata, but there is no 17.0.3 dyld or XNU path that operationally consumes `jitInfo`
 
-That changes the precise interpretation:
+That changes the precise interpretation. The dyld/XNU facts and the bootstrap writes are **Verified**; the usage conclusions below are **Inferred** from those facts:
 
 - `0x50000` is not “run by dyld through jitInfo”
 - the helper branch maps and arms the raw `0x50000` helper region itself
@@ -508,6 +513,11 @@ So the firmware-backed description is:
 ## `0x80000`: Orchestrator Dylib
 
 Two size variants are observed across the payload sets: 228928 bytes (the 377bed variant documented in the original writeup) and 196864 bytes (the e9f89858 variant analyzed below). Both share the same export surface.
+
+For this section:
+
+- control flow, exported symbols, record IDs, callbacks, and offsets are **Verified**
+- labels such as "orchestrator", "post-exploit dispatch", and "continuation" are **Inferred** from role and call graph
 
 ### Exports (377bed variant)
 
@@ -549,7 +559,7 @@ In the e9f89858 variant, `_startr` at `0x6ab0` calls `sub_6BA0(ctx, mode_flag, 1
 
 Observed fields in the live `0x70005` blob after the magic. The blob we recovered is larger than the `0x18` minimum accepted by `_startr`:
 
-- raw flags dword at offset `0x4` with the enable bit read from byte `0x5`
+- raw flags dword at offset `0x4` with the mode byte read from byte `0x4` in the e9f89858 path
 - TTL `0x15180` (`86400`) at offset `0x8`
 - `0x7d0` at offset `0xc`
 - `1` at offsets `0x10` and `0x14`
@@ -609,14 +619,14 @@ The thread pack layout:
 
 `sub_71F8` is the thread entry. It calls `sub_A238` to build a runtime context (creating a record store, registering `0x70003` and `0x70004` strings, calling `sub_C320` for the record-store builder), then calls `sub_7410` for the main dispatch.
 
-`sub_7410` is the core post-exploit function. Recovered sequence:
+`sub_7410` is the core worker-thread dispatch function. The step order below is **Verified**; calling it the main post-exploit dispatcher is **Inferred** from its role in the call graph.
 
 1. **Entitlement injection:** injects a baked plist fragment granting:
    - `com.apple.private.webbookmarks.settings`
    - `com.apple.private.security.storage.DiagnosticReports.read-write`
 2. **Exception guard suppression:** calls `task_get_exc_guard_behavior` / `task_set_exc_guard_behavior` to clear bits `0x88` from the guard mask, preventing crash reports during exploit activity. The original mask is restored at the end.
 3. **Environment check:** calls `sub_7B18` to probe runtime conditions.
-4. **Anti-forensics dispatch:** resolves `_startsc` from record `0xA0000` (655360) via `sub_7BA0(ctx, 655360, "_startsc", ...)` and calls it. If the record is missing (error 28675), execution continues without cleanup.
+4. **Cleanup-module dispatch:** resolves `_startsc` from record `0xA0000` (655360) via `sub_7BA0(ctx, 655360, "_startsc", ...)` and calls it. If the record is missing (error 28675), execution continues without cleanup.
 5. **Unloads `0xA0000`** via `ctx + 224` callback with flush mode `4`.
 6. **Atomic one-shot gate:** uses `ldaxr`/`stlxr` to ensure the following dispatch runs exactly once per process.
 7. **Resolves and maps `0x80000`** via `ctx + 104` callback, then builds a dispatch table via `sub_7CA4`.
@@ -629,7 +639,7 @@ The thread pack layout:
 
 ### `sub_6BA0`: `_startr` Continuation (e9f89858 variant)
 
-Called from `_startr` with `(ctx, mode_flag, 1)`. This function is the second-stage orchestrator after `_startr` reads the `0x70005` mode record.
+Called from `_startr` with `(ctx, mode_flag, 1)`. This call relationship is **Verified**; describing it as a second-stage orchestrator is **Inferred** from the subsequent record and thread dispatch work.
 
 Key recovered behavior:
 
@@ -645,6 +655,11 @@ So `sub_6BA0` is where the `prefix32` sideband is ultimately consumed on the nat
 ## `0xA0000`: Anti-Forensics Cleanup Module
 
 Present as `entry4_type0x0a.dylib` in payload sets that include it (e9f89858, f4120dc6, c8a14d79, 1b2cbbde). Record ID `0xA0000` (655360). 36 functions, relatively small binary.
+
+For this section:
+
+- exported symbols, file paths, deletion routines, and control parameters are **Verified**
+- the "anti-forensics" label and "exploit traces" framing are **Inferred** from the targeted paths and surrounding call context
 
 ### Export
 
@@ -696,11 +711,11 @@ When enabled, `_startsc` calls `setsid()` to detach from the controlling termina
 
 ### Purpose
 
-This module removes WebKit exploit traces — crash reports, JetsamEvent logs, WebContent process crashes, diagnostic logs, and analytics aggregates — from the `sub_7410` worker-thread dispatch path before `_startr` runs. The entitlements injected by `sub_7410` (`com.apple.private.security.storage.DiagnosticReports.read-write`) are prerequisites for accessing several of these paths.
+This module deletes WebKit-related crash reports, JetsamEvent logs, diagnostic logs, and analytics aggregates from the `sub_7410` worker-thread dispatch path before `_startr` runs. The path targets and call order are **Verified**; interpreting this as anti-forensics cleanup of exploit traces is **Inferred** from those targets and the surrounding execution context. The entitlements injected by `sub_7410` (`com.apple.private.security.storage.DiagnosticReports.read-write`) are likely prerequisites for accessing several of these paths.
 
 ### `sub_BA2C`: `_starti` Dispatcher
 
-`sub_BA2C` is called from 7 locations within the 0x80000 orchestrator. Recovered behavior:
+`sub_BA2C` is called from 7 locations within the 0x80000 image. The call count and behavior below are **Verified**; the `_starti` dispatcher label is **Inferred** from the resolved symbol and invocation pattern:
 
 1. Fetches record `0x30000` (196608) and loads it as a Mach-O image.
 2. Fetches record `0x40000` (262144) as raw data.
@@ -753,6 +768,12 @@ The kernel version method (`sub_6324`) explicitly rejects non-RELEASE kernels an
 
 Both variants allocate a `0x1D60`-byte state object. The 377bed variant uses `sub_3E42C` → `sub_3CCA8`; the e9f89858 variant uses `sub_331EC` → `sub_31BA0`. The init function is the actual exploit setup — it is the largest single function in the binary.
 
+Evidence labels used in this section:
+
+- **Verified**: directly observed in decompilation / disassembly / constants.
+- **Inferred**: conclusion drawn from control flow, data flow, or repeated usage, but not named explicitly by the binary.
+- **Hypothesis**: plausible label or external identification that is not proved by the binary alone.
+
 Recovered sequence from the e9f89858 variant (`sub_31BA0`, ~500 lines of pseudocode):
 
 #### 1. Environment gating
@@ -764,18 +785,18 @@ Recovered sequence from the e9f89858 variant (`sub_31BA0`, ~500 lines of pseudoc
   - `8019`/`8020` = xnu-8019/8020 (iOS 15.x/Darwin 21)
   - `8792`/`8796` = xnu-8792/8796 (iOS 16.x/Darwin 22)
   - `10002` = xnu-10002 (iOS 17.x/Darwin 23)
-- Kernel address/slide stored at `state + 344` as a 64-bit value. Valid range: `0x1C1B1914600000` – `0x225C19046FFFFF`. Values above `0x1F543C41E00000` with build < 8792 are rejected.
+- Kernel address/slide stored at `state + 344` as a 64-bit value. The init path applies multiple threshold checks rather than a single simple range: an early coarse gate rejects values outside a broad startup window, and later logic enforces `0x1C1B1914600000` through `0x225C1E804FFFFF`, with values above `0x1F543C41E00000` rejected on builds < 8792.
 
 #### 2. Anti-analysis checks
 
 - `stat("/usr/libexec/corelliumd")` → reject if exists
 - `sandbox_check(getpid(), "iokit-get-properties", SANDBOX_CHECK_NO_REPORT)` → reject if sandboxed
 - IOKit serial number check: reads `IOPlatformSerialNumber` from `IODeviceTree:/`, rejects `CORELLIUM` prefix
-- CPU capability probe: specific CPU families get additional gating (e.g. `hw.cpufamily == 458787763` is A15 Blizzard/Avalanche)
+- CPU capability probe: specific CPU families get additional gating. The numeric constants are **Verified**; SoC-family naming such as `hw.cpufamily == 458787763` = A15 Blizzard/Avalanche is **Hypothesis** from external mapping.
 
 #### 3. CPU family → capability flags
 
-The exploit branches on `hw.cpufamily`:
+The exploit branches on `hw.cpufamily`. Capability bits are **Verified**; the SoC-family names in the table are **Hypothesis** from external mapping:
 
 | CPU family constant | SoC family | Capability flag set |
 |---|---|---|
@@ -794,14 +815,14 @@ On newer kernels (`state + 344 > 0x1F530F027FFFFF`), also reads `hw.model` via s
 Before running the full exploit, `sub_31BA0` first attempts to **inherit** a previously-published kernel primitive from shared memory. Three version-dependent recovery functions are tried:
 
 **`sub_9DC8` (newest, `state+344 > 0x2257FFFFFFFFFFFF`):**
-- Calls `sub_137E4(state, 17, 0x4000, &ptr)` which resolves a `host_create_mach_voucher` recipe keyed at `0x1122334455667788 + 17` (or reads from a mailbox slot table on newer builds), obtains a memory entry port, and `vm_map`s 4 pages of shared memory.
+- Calls `sub_137E4(state, 17, 0x4000, &ptr)` which resolves a handle keyed at `0x1122334455667788 + 17` (or reads from a mailbox slot table on newer builds), obtains a memory entry port, and `vm_map`s 4 pages of shared memory. The keying and mapping are **Verified**; calling it a `host_create_mach_voucher` recipe is **Inferred**.
 - Scans the mapped region for a dword value `8` at page-aligned boundaries — this is a magic marker left by a prior run.
 - When found, copies 0x6D0 bytes of pre-built exploit state from the template, clears stale fields, and finishes IOSurface setup via the same `sub_A048` → `sub_A2D0` → `sub_A4A8` → `sub_A508` sequence used by the full exploit.
 - Maps a second shared region via `sub_137E4(state, 18, ...)` for additional state.
 
 **`sub_13C5C` (middle, `state+344 > 0x1F530F027FFFFF` with state bits):**
-- Resolves 3 Mach ports via voucher mailbox recipes keyed from `0x3122334455667788 + offset` (on older builds) or from a slot table (on newer builds).
-- On builds > 8791: validates via `IOConnectCallMethod(connection[1], 0x3E7, ...)` (selector 999).
+- Resolves 3 Mach ports via mailbox-style keys from `0x3122334455667788 + offset` (on older builds) or from a slot table (on newer builds). The keys and port recovery are **Verified**; the “voucher mailbox” label is **Inferred**.
+- On older builds (`<= 8791`): validates via `IOConnectCallMethod(connection[1], 0x3E7, ...)` (selector 999) and accepts the expected failure code. On newer builds this check is skipped.
 - Maps `connection[0]` and `object` into memory. Reads pre-computed kernel state from the mapped page:
   - `+0x00`: kernel object address → `state + 6608`
   - `+0x08`: kernel region → `state + 240`
@@ -809,14 +830,14 @@ Before running the full exploit, `sub_31BA0` first attempts to **inherit** a pre
 - Stores the IOSurface connect port and mapped window at `state + 232/248/256`.
 
 **`sub_1393C` (oldest, below middle threshold):**
-- Resolves 3–4 voucher recipes starting from `0x1122334455667788`.
+- Resolves 3–4 keyed handles starting from `0x1122334455667788`. The constant sequence is **Verified**; the exact voucher primitive label is **Inferred**.
 - Converts voucher ports to file descriptors via `fileport_makefd()`.
 - The kernel addresses are **smuggled through `fstat` metadata**: `st_atimespec.tv_sec` contains the kernel object address, `st_atimespec.tv_nsec` encodes the kernel base/slide via bit manipulation (`>> 40` × page_size → `state + 6624`).
 - Stores fds at `state + 6448/6452/6456/6464` and the kernel object at `state + 6608`.
 
-If any of these inherit successfully (`result == 1`), the full exploit is skipped. If all fail, execution falls through to the actual vulnerability trigger in `sub_8A48`.
+If any of these inherit successfully (`result == 1` plus the expected state fields are populated), the full exploit is skipped. If all fail, execution falls through to the actual vulnerability trigger in `sub_8A48`.
 
-The **terminal helper families** (documented earlier as `sub_1DBD8`, `sub_1DE68`, `sub_1E154`, `sub_C060`) are responsible for **publishing** the kernel state that these functions later inherit. They use the same voucher recipe keys and `fileport_makeport` to convert fds to Mach ports for cross-invocation sharing.
+The **terminal helper families** (documented earlier as `sub_1DBD8`, `sub_1DE68`, `sub_1E154`, `sub_C060`) appear to **publish** the kernel state that these functions later inherit. The shared keys, slot writes, and `fileport_makeport` use are **Verified**; the producer/consumer framing is **Inferred**.
 
 #### 5. Kernel primitive acquisition — the actual exploit (`sub_8A48`)
 
@@ -841,18 +862,18 @@ It creates an IOSurface via `sub_8754`, then **scans kernel memory through the I
 
 The scan starts from the IOSurface base plus `0x10000000` and walks upward. When matching patterns are found, the function reads `hw.model` via sysctl and proceeds with the Mach port spray.
 
-The **initial address correlation** comes from the IOSurface `kIOSurfaceMemoryRegion` property — by controlling the memory region the surface is allocated from, the exploit influences the kernel address of the backing store. The `IOSurfaceGetBaseAddress` return and the userclient's ability to read/write the backing give the necessary kernel memory access.
+The **initial address correlation** appears to come from the IOSurface `kIOSurfaceMemoryRegion` property — by controlling the memory region the surface is allocated from, the exploit influences the kernel address of the backing store. The property resolution and subsequent scanning are **Verified**; the exact causal interpretation is **Inferred**.
 
 ##### Kernel address leak via IOGPU/IOSurface selectors (`sub_DDBC`)
 
 `sub_DDBC` derives kernel virtual addresses through two SoC-dependent paths:
 
-**IOGPU path** (capability `0x8000`, used on A14+):
+**IOGPU path** (capability `0x8000`):
 - Reads kernel address components from IOGPU external method selectors at `0x20AE00008` through `0x20AE00030` (6–8 sequential 32-bit reads).
 - Combines pairs of 32-bit values into 64-bit kernel virtual addresses.
 - Computes a base address for the scan range from the GPU firmware region metadata.
 
-**IOSurface path** (capability `89670209`, non-IOGPU SoCs):
+**IOSurface path** (capability `89670209`):
 - Reads IOSurface external method selectors `0x200000680`/`0x200000684` (or `0x2000007E4`/`0x2000007E8` depending on CPU family).
 - The result is a page index; multiplied by `page_size` and added to the IOSurface base → kernel address.
 - These selectors expose page table or allocation metadata from the IOSurface userclient.
@@ -877,9 +898,9 @@ If validation passes, the address is stored at `ctx + 56` and used as the anchor
 `sub_E418` takes two callbacks (`sub_667C` for read, `sub_7024` for write) and:
 
 1. Calls `sub_DDBC` to derive the kernel address and locate the IOKit heap object.
-2. Reads via the callback from a version-dependent address; expects magic `0x484A4A06`.
+2. Reads via the callback from a version-dependent address; expects magic `0x484F6666`.
 3. Allocates 0x4000 bytes and reads 4 pages of kernel memory.
-4. Calls `sub_E2FC` to parse the read data. `sub_E2FC` searches for the marker `0x6874616D` ("math" in ASCII) — a structural signature in the IOSurface kernel object property metadata. When found, it extracts an entry count, iterates entries at stride 8 (or 6 on xnu-8796+), and looks for an entry with value `24`. From the matching entry it extracts two pointer-sized values and computes the final IOSurface kernel object address.
+4. Calls `sub_E2FC` to parse the read data. `sub_E2FC` searches for the marker `0x686F6D6D` in the buffer, extracts an entry count, iterates entries at stride 8 (or 6 on xnu-8796+), and looks for an entry with value `24`. From the matching entry it extracts two pointer-sized values and computes the final IOSurface kernel object address.
 5. Computes a version-specific scan offset (ranging from `0x4000000` to `0x7B00000`) based on kernel address thresholds and CPU capability bits.
 6. Calls `sub_F1F8` to verify the corruption target.
 
@@ -953,7 +974,7 @@ All three paths retry up to 5 times on failure (error code 258054).
 
 ##### Vulnerability class
 
-The exploit is a **multi-stage IOSurface/IOGPU information disclosure → pmap permission escalation chain**, not a single memory corruption bug:
+The exploit is best modeled as a **multi-stage IOSurface/IOGPU information disclosure → pmap permission escalation chain**, not a single classic memory corruption bug. The concrete reads, writes, and object walks below are **Verified**; the overall vulnerability-class label is **Inferred** from those mechanics:
 
 1. **KASLR defeat**: IOGPU external method selectors (`0x20AE000xx`) and IOSurface selectors (`0x20000068x`/`0x2000007Ex`) expose kernel address components (page indices, virtual address fragments) from GPU firmware metadata and surface allocation internals.
 2. **Kernel heap read**: The IOSurface userclient's memory-mapped backing region, combined with controlled `kIOSurfaceMemoryRegion` allocation, provides a window into kernel heap memory that the exploit uses to scan for IOKit object metadata (`0xFEEBDAED` markers, "math" structural signatures).
@@ -961,7 +982,7 @@ The exploit is a **multi-stage IOSurface/IOGPU information disclosure → pmap p
 4. **pmap permission modification**: The final writes target the IOSurface's pmap-related structure fields — `pmap_ptr + 32` (1-byte enable) and `pmap_ptr + 116` (set `0x1000` bit in permission flags). This modifies page table protections to grant the userspace process a direct read/write mapping into kernel memory via a subsequent `mach_make_memory_entry` + `vm_map`.
 5. **No classic corruption**: There is no use-after-free, heap overflow, or type confusion. The primitive is built entirely from information disclosure through IOKit external methods, controlled memory mapping, and permission flag manipulation on existing kernel objects.
 
-The vulnerability class is best described as a **PPL bypass via IOSurface/IOGPU info leak + pmap permission escalation**, consistent with the IOSurface-class kernel exploits that Apple has patched across iOS 15–17.
+The vulnerability class is best described as a **PPL bypass via IOSurface/IOGPU info leak + pmap permission escalation**. That label is **Inferred** from the recovered mechanics rather than stated explicitly by the binary.
 
 #### 6. Kernel read/write primitives
 
@@ -1001,7 +1022,7 @@ Baked entitlement plists for injection:
 
 - Calls `sub_31350(state, mach_task_self_, 0, 0)` to re-apply task credentials
 - Obtains `host_priv` port via `sub_2F660` → `state + 6432`
-- Verifies host_priv is real by calling `host_get_special_port(host_priv, -1, 16, &port)` — expects `HOST_KEXTD_PORT` to be invalid (port == 0), confirming this is the real host_priv, not a fake
+- Verifies host_priv is real by calling `host_get_special_port(host_priv, -1, 16, &port)` and expecting the returned port name to remain invalid / null. The check is **Verified**; identifying selector `16` as `HOST_KEXTD_PORT` is **Inferred** from external Mach naming.
 - Calls `sub_306F4(state, mach_task_self_)` for task-level operations
 - On older kernels: `sub_2F7A8` obtains an additional special port at `state + 6436`
 
@@ -1127,7 +1148,7 @@ Recovered 17.x families:
 
 - `sub_1DBD8` / older modern equivalent
   - fileport/voucher mailbox graft helper
-  - uses `host_create_mach_voucher` recipes keyed from `0x1122334455667788 + n`
+  - uses keyed handle lookup from `0x1122334455667788 + n`
   - converts saved FDs into fileports and writes `a1+6608` plus `a1+6624` / `a1+536` derived values into recovered slot structures
 - `sub_1DE68`
   - memory-entry handoff helper
@@ -1159,7 +1180,7 @@ The two modern `0x90000` variants checked here, `377bed...` and `7a1cef...`, pre
 
 ### What This Means
 
-The `0x90000` record is not a one-shot payload runner. It is a kernel primitive / post-exploit service object.
+The `0x90000` record is not a one-shot payload runner. It acts as a kernel primitive / service object for the later native stages.
 
 The most defensible description from the recovered code is:
 
@@ -1331,12 +1352,12 @@ python3 tools/coruna_payload_tool.py inspect-record \
 
 ## Current Secondary Questions
 
-The `0x50000`, `prefix32`, `0xA0000`, and optional module questions are substantially narrowed above. The `prefix32` sideband is now traced: `sub_6BA0` in the 0x80000 orchestrator composes it with the selected-path string and writes the result back into the record store for downstream native consumption.
+The `0x50000`, `prefix32`, `0xA0000`, and optional module questions are substantially narrowed above. The `prefix32` sideband is now traced: `sub_6BA0` in the `0x80000` image composes it with the selected-path string and writes the result back into the record store for downstream native consumption.
 
 Remaining lower-priority unknowns:
 
-- records `0x10000`, `0x30000`, `0x40000` are now confirmed as **optional** — the orchestrator handles their absence gracefully. Their runtime origin is still untraced, but their absence does not block the main chain.
-- `_startx` and `_starti` are optional dispatch targets. When their backing records exist, the orchestrator loads and calls them; when absent, execution continues normally. They likely exist only in certain deployment configurations.
+- records `0x10000`, `0x30000`, `0x40000` are now confirmed as configuration-dependent and absent from `manifest.json`. Their runtime origin is still untraced.
+- `_startx` and `_starti` are additional dispatch targets whose handling is path-specific. When their backing records exist, the `0x80000` image loads and calls them; when absent, the resulting errors are handled by the surrounding call sites rather than by a single universal “optional module” path.
 - the `platform_module.js` version offset table maps specific iOS builds to internal offset keys, but the mapping between those keys and the native chain's kernel-version thresholds has not been cross-referenced
 - the three state-inheritance trigger functions (`sub_9DC8`/`sub_13C5C`/`sub_1393C`) are now fully traced — they inherit pre-published kernel state via voucher recipes and shared memory
 - the initial kernel address leak mechanism is now traced: `sub_72EC` uses the IOSurface `kIOSurfaceMemoryRegion` property to control backing store allocation, then scans kernel memory through the surface's userclient interface
@@ -1352,9 +1373,9 @@ Resolved chain shape:
 - `0x90001` controls the helper mapping path, publishes the raw `0x50000` helper region, and adjusts `vm_map` / `pmap` state for it
 - `0x80000._start` resolves `_driver` from `0x90000` and hands off to `_startl`
 - `_startl` spawns a worker thread that registers string records and calls `sub_7410`
-- `sub_7410` injects entitlements, suppresses exception guards, invokes `_startsc` from `0xA0000` for anti-forensics cleanup, dispatches `_startr`, and performs additional crash-report deletion
+- `sub_7410` injects entitlements, suppresses exception guards, invokes `_startsc` from `0xA0000` for cleanup, dispatches `_startr`, and performs additional crash-report deletion
 - `_startr` reads the `0x70005` mode record and continues into `sub_6BA0`
 - `sub_6BA0` propagates the `prefix32` sideband into the record store, resolves `_startx` from `0x10000`, and dispatches it
-- `0x90000` builds kernel-level post-exploit access and patches policy state
+- `0x90000` builds kernel-level access and patches policy state
 - `0xF0000` loads `TweakLoader`
 - `TweakLoader` extracts and runs the embedded visible lockscreen payload

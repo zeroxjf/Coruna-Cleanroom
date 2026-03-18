@@ -29,10 +29,10 @@ index.html ─── fingerprint device, select stages
      ▼
  bootstrap ─── select payload hash, fetch via JS/native bridge
      │
-     ├─ 0x80000  orchestrator: resolve _driver, launch worker
+     ├─ 0x80000  dispatch layer: resolve _driver, launch worker
      ├─ 0x90000  kernel exploit: IOSurface + IOGPU/AGX + PPL
      │           → sandbox/AMFI/developer-mode policy patches
-     ├─ 0xA0000  anti-forensics: delete crash reports, diagnostics,
+     ├─ 0xA0000  cleanup module: delete crash reports, diagnostics,
      │           WebKit caches, analytics aggregates
      └─ 0xF0000  TweakLoader: extract embedded Mach-O, bypass
                  dyld lib-validation, dlopen → next_stage_main
@@ -46,8 +46,8 @@ index.html ─── fingerprint device, select stages
 | Stage 1 (JSC primitives) | Mechanics documented for both `terrorbird` and `cassowary` |
 | Stage 2 (PAC bypass) | Gadget chains and corruption path documented for all `seedbell` branches |
 | Stage 3 (native loader) | Container format, JS/native bridge protocol, bootstrap mapping all recovered |
-| `bootstrap.dylib` | `_process`, callback registry, anti-analysis checks, selector/manifest resolution, LZMA decompression |
-| `0x80000` orchestrator | Full dispatch flow through `_start` → `_startl` → worker → `sub_7410` → `_startr` across two variants |
+| `bootstrap.dylib` | `_process`, callback registry, environment checks, selector/manifest resolution, LZMA decompression |
+| `0x80000` dispatch layer | Full dispatch flow through `_start` → `_startl` → worker → `sub_7410` → `_startr` across two variants |
 | `0x90000` kernel exploit | Full exploit loop: IOSurface kaddr leak via `kIOSurfaceMemoryRegion`, kernel object scan + corruption trigger, 3 primitive tiers, 3 state-inheritance paths (shared mem / voucher mailbox / fileport-smuggled fstat), kread/kwrite 6-tier backend, AMFI/sandbox patching, 40+ command selectors |
 | `0xA0000` cleanup | Fully decompiled — targets, helper functions, entry contract |
 | `0xF0000` TweakLoader | Exports, dyld bypass, embedded `__SBTweak` extraction, `next_stage_main` contract |
@@ -79,4 +79,3 @@ clang -std=c11 -Wall -Wextra -Werror -Iclean-room/include -fsyntax-only \
 
 python3 -m py_compile tools/coruna_payload_tool.py
 ```
-
