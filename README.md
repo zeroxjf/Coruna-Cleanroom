@@ -48,14 +48,14 @@ index.html ─── fingerprint device, select stages
 | Stage 3 (native loader) | Container format, JS/native bridge protocol, bootstrap mapping all recovered |
 | `bootstrap.dylib` | `_process`, callback registry, anti-analysis checks, selector/manifest resolution, LZMA decompression |
 | `0x80000` orchestrator | Full dispatch flow through `_start` → `_startl` → worker → `sub_7410` → `_startr` across two variants |
-| `0x90000` kernel exploit | Full init sequence, 3 version-dependent primitive paths (IOSurface mapping / fd-pair+socket / fd-pair), kread/kwrite multi-backend, AMFI/sandbox patching, 40+ command selectors, CPU family dispatch |
+| `0x90000` kernel exploit | Full exploit loop: IOSurface kaddr leak via `kIOSurfaceMemoryRegion`, kernel object scan + corruption trigger, 3 primitive tiers, 3 state-inheritance paths (shared mem / voucher mailbox / fileport-smuggled fstat), kread/kwrite 6-tier backend, AMFI/sandbox patching, 40+ command selectors |
 | `0xA0000` cleanup | Fully decompiled — targets, helper functions, entry contract |
 | `0xF0000` TweakLoader | Exports, dyld bypass, embedded `__SBTweak` extraction, `next_stage_main` contract |
 | `prefix32` sideband | Traced to native consumption in `sub_6BA0` |
 | Record contracts | 14 record IDs mapped including 3 runtime-synthesized (`0x10000`, `0x30000`, `0x40000`) |
 | Clean-room C contracts | Compile-checked headers and validation helpers |
 
-**Remaining gap:** the specific IOSurface kernel object corruption technique inside `sub_8A48` — how the initial kernel address leak is obtained before the pointer walk begins. The three "trigger" functions (`sub_9DC8`/`sub_13C5C`/`sub_1393C`) are now confirmed as state-inheritance/caching, not the vulnerability itself. Records `0x10000`/`0x30000`/`0x40000` are confirmed optional.
+**Remaining gap:** the specific kernel object field being corrupted in `sub_E418` → `sub_F1F8` and the exact vulnerability class — everything up to and after that point is traced.
 
 ## Layout
 

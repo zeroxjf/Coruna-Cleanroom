@@ -820,7 +820,45 @@ The **terminal helper families** (documented earlier as `sub_1DBD8`, `sub_1DE68`
 
 #### 5. Kernel primitive acquisition — the actual exploit (`sub_8A48`)
 
-When state inheritance fails, `sub_8A48` runs the real IOSurface-based kernel exploit. It implements three separate techniques selected by kernel address range:
+When state inheritance fails, `sub_8A48` runs the real IOSurface-based kernel exploit. The exploit loop is:
+
+1. **`sub_72EC`** — IOSurface setup and kernel address leak
+2. **`sub_E418`** — kernel object location and corruption trigger
+3. **`sub_B8F8`** — version-dependent struct offset table
+4. IOSurface pointer walk and primitive finalization
+
+The loop retries up to 5 times on failure (error 258054).
+
+##### Initial kernel address leak (`sub_72EC`)
+
+This function opens `IOSurfaceRoot` via `sub_1BE64("IOSurfaceRoot", 120)`, then `dlopen`s the IOSurface framework and resolves: `IOSurfaceCreate`, `IOSurfaceGetBaseAddress`, `IOSurfaceGetAllocSize`, `kIOSurfaceAllocSize`, `kIOSurfaceMemoryRegion`, `kIOSurfaceCacheMode`, `kIOSurfaceIsGlobal`, `kIOSurfaceWidth`, `kIOSurfaceHeight`.
+
+It creates an IOSurface via `sub_8754`, then **scans kernel memory through the IOSurface backing region** via `sub_719C(ctx, address, size, &output)`. The scan walks page-by-page searching for tagged kernel pointer patterns:
+
+- **Pattern 1**: `!(ptr >> 27) && ptr > threshold && (ptr & 7) == 1` — a tagged kernel object pointer (threshold is `0x30000` for builds <= 8791, `0x800000` for newer)
+- **Pattern 2**: `ptr >= 0xFFFFFFFF40000000 && ptr < 0xFFFFFFFF48000000 && (ptr & 7) == 0` — a PPL/KTRR-range kernel virtual address
+- On builds >= 8792, a third value at `address + 16` is checked against the same PPL range
+
+The scan starts from the IOSurface base plus `0x10000000` and walks upward. When matching patterns are found, the function reads `hw.model` via sysctl and proceeds with the Mach port spray.
+
+The **initial address correlation** comes from the IOSurface `kIOSurfaceMemoryRegion` property — by controlling the memory region the surface is allocated from, the exploit influences the kernel address of the backing store. The `IOSurfaceGetBaseAddress` return and the userclient's ability to read/write the backing give the necessary kernel memory access.
+
+##### Kernel object location and corruption (`sub_E418`)
+
+`sub_E418` takes two callbacks (`sub_667C` for read, `sub_7024` for write) and:
+
+1. Calls `sub_DDBC` for initial setup.
+2. Reads via the callback from a version-dependent address; expects magic `0x484A4A06`.
+3. Allocates 0x4000 bytes and reads 4 pages of kernel memory via the callback.
+4. Calls `sub_E2FC(buffer, 0x4000, cpu_capabilities, ctx+120, &v89, state)` to parse the read data and locate the target kernel object chain.
+5. Computes a version-specific corruption offset based on kernel address range thresholds (`0x1F52FFFFFFFFFFFF`, `0x225C1E803FFFFF`, etc.) and CPU capability bits. The offsets range from `0x4000000` to `0x7B00000` depending on the exact kernel/SoC combination.
+6. Calls `sub_F1F8(ctx, computed_offset + base, base + 0x2000000)` — this is the **corruption step** that writes to the located kernel object.
+
+After `sub_E418` succeeds, `sub_B8F8` computes version-dependent struct offsets for the IOSurface kernel object layout (field positions change across xnu-7195 through xnu-10002).
+
+##### Three exploitation tiers
+
+`sub_8A48` then implements three separate primitive construction techniques selected by kernel address range:
 
 **Path A — Newest kernels (`state+344 >= 0x1F530F02800000` with specific state bits, or `>= 0x2258000000000000`):**
 
@@ -1243,7 +1281,9 @@ Remaining lower-priority unknowns:
 - records `0x10000`, `0x30000`, `0x40000` are now confirmed as **optional** — the orchestrator handles their absence gracefully. Their runtime origin is still untraced, but their absence does not block the main chain.
 - `_startx` and `_starti` are optional dispatch targets. When their backing records exist, the orchestrator loads and calls them; when absent, execution continues normally. They likely exist only in certain deployment configurations.
 - the `platform_module.js` version offset table maps specific iOS builds to internal offset keys, but the mapping between those keys and the native chain's kernel-version thresholds has not been cross-referenced
-- the three state-inheritance trigger functions (`sub_9DC8`/`sub_13C5C`/`sub_1393C`) are now fully traced — they inherit pre-published kernel state via voucher recipes and shared memory. The actual vulnerability trigger remains in `sub_8A48` (IOSurface-based). The specific IOSurface kernel object corruption technique (how the initial kaddr leak is obtained before the pointer walk) is the narrowest remaining gap in the exploit chain.
+- the three state-inheritance trigger functions (`sub_9DC8`/`sub_13C5C`/`sub_1393C`) are now fully traced — they inherit pre-published kernel state via voucher recipes and shared memory
+- the initial kernel address leak mechanism is now traced: `sub_72EC` uses the IOSurface `kIOSurfaceMemoryRegion` property to control backing store allocation, then scans kernel memory through the surface's userclient interface
+- the corruption trigger `sub_E418` → `sub_F1F8` is identified but the specific kernel object field being corrupted and the exact vulnerability class (use-after-free, type confusion, race condition, etc.) are not yet pinned down from static analysis alone
 
 Resolved chain shape:
 
