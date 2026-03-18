@@ -1,52 +1,16 @@
 # Clean-Room Contracts
 
-This directory is the start of a source-equivalent handoff tree.
+Recovered ABI contracts and validation helpers for the Coruna exploit chain. See the [top-level README](../README.md) for the full chain reconstruction.
 
-Current scope:
+## Contents
 
-- `include/coruna_contracts.h`
-  - recovered record IDs, including auxiliary `0x70003/04/05/06`, cleanup-module `0xA0000`, and undocumented runtime records `0x10000/0x30000/0x40000`
-  - bootstrap request IDs `0x70001/0x70002` for the selector path / opaque `prefix32` sideband
-  - `0xF00DBEEF` container header and entry layout
-  - `0x70000` selector blob layout
-  - `0x70005` mode blob view with the enable bit at byte `+0x4` and TTL dword at `+0x8`
-  - bootstrap callback slot offsets used by `0x50000`
-  - `0x90000` and `0x90001` vtable object layouts
-  - raw helper command IDs observed on the live `0x90001` path
-- `src/coruna_contracts.c`
-  - parsing and basic validation helpers for the selector and mode blobs
-  - thin wrappers around the recovered `0x90000` and `0x90001` method tables
-- `include/coruna_stage_loader.h`
-  - fixed-size stage slot layout consumed by the `0x80000` record-store builder
-  - default mode TTL/state projection used by `_startr`
-  - recovered `0x80000` thread-pack subset used by the current worker-pack helpers
-- `src/coruna_stage_loader.c`
-  - record-store dedup/conflict logic matching `sub_25020`
-  - `0x70005` mode status projection with the live 86400-second default
-  - clean-room helpers for building the worker thread pack handed to `sub_94E8`
+- `include/coruna_contracts.h` — record IDs, struct layouts, vtable definitions, command IDs
+- `include/coruna_stage_loader.h` — loader-side record-store and worker-pack contracts
+- `src/coruna_contracts.c` — parsing/validation helpers for selector and mode blobs, vtable wrappers
+- `src/coruna_stage_loader.c` — record-store dedup/conflict logic, mode projection, worker-pack builder
 
-Recovered live sequence represented by these contracts:
+## Verify
 
-1. Stage3 rebuilds a `0xF00DBEEF` container.
-2. Bootstrap selects a `0x70000` record and forwards `prefix32` as opaque sideband data.
-3. Bootstrap auxiliary branch loads `0x50000`, which installs:
-   - `ctx + 0x30`: load image
-   - `ctx + 0x38`: resolve symbol
-   - `ctx + 0x130`: unload image
-4. Bootstrap uses those installed callbacks to load `0x80000`, resolve `"_start"`, call it, and unload the temporary image.
-5. `0x80000` resolves `0x90000::_driver`, instantiates the driver object, and passes it into `_startl`.
-6. `_startl` builds a 24-slot record store, injects `0x70003/0x70004` string records, optionally carries `0x70006`, and spawns the worker thread.
-7. The worker thread (`sub_71F8` → `sub_7410`) injects entitlements, suppresses exception guard notifications, then invokes `0xA0000::_startsc` for cleanup of WebKit caches, diagnostics, crash reports, and analytics aggregates.
-8. After cleanup, `sub_7410` dispatches `_startr` from `0x80000`.
-9. `_startr` reads `0x70005` for mode/TTL and continues into `sub_6BA0`.
-10. `sub_6BA0` propagates the `prefix32` sideband into the record store, resolves `_startx` from record `0x10000` (if present), and dispatches it.
-11. `sub_BA2C` (called from multiple points) loads record `0x30000`, resolves `_starti`, and calls it with data from `0x40000` and `0x90000`.
-
-The remaining work is to replace these ABI-level contracts with clean source implementations for:
-
-- `bootstrap.dylib`
-- the `0x50000` loader/runtime
-- the `0x80000` dispatch layer (now substantially traced through both the 377bed and e9f89858 variants)
-- the `0xA0000` cleanup module (now fully recovered)
-- the `0x90000` kernel exploit / policy patch path
-- the `0xF0000` final-stage loader
+```sh
+clang -std=c11 -Wall -Wextra -Werror -Iinclude -fsyntax-only src/coruna_contracts.c src/coruna_stage_loader.c
+```
