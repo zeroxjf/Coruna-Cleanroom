@@ -12,18 +12,18 @@ Individual vulnerabilities were patched at different iOS versions. The kit uses 
 
 | CVE | Type | Fixed in | Vulnerable through | Coruna role |
 |---|---|---|---|---|
-| CVE-2021-30952 | WebKit RCE | iOS 15.2 | iOS 13.0 – 15.1.1 | Stage 1 (oldest) |
-| CVE-2022-48503 | WebKit RCE | iOS 15.6 | iOS 15.2 – 15.5.x | Stage 1 (`jacurutu`) |
-| CVE-2023-43000 | WebKit RCE | iOS 16.6 | iOS 15.6 – 16.5.1 | Stage 1 (`bluebird`/`terrorbird`) |
-| CVE-2024-23222 | WebKit RCE | iOS 17.3 + 16.7.5 | iOS 16.6 – 17.2.1 | Stage 1 (`cassowary`) |
-| CVE-2023-32409 | Sandbox escape | iOS 16.5 + 15.7.8 | up to iOS 16.4.x / 15.7.7 | Sandbox escape |
-| CVE-2020-27932 | Kernel privesc | iOS 14.2 | iOS 13.0 – 14.1 | Kernel (oldest) |
-| CVE-2020-27950 | Kernel info leak | iOS 14.2 | iOS 13.0 – 14.1 | Kernel (oldest) |
-| CVE-2023-32434 | Kernel | iOS 16.5.1 + 15.7.7 | up to iOS 16.5 / 15.7.6 | Kernel (mid-range) |
-| CVE-2023-38606 | Kernel | iOS 16.6 + 15.7.8 | up to iOS 16.5.1 / 15.7.7 | Kernel (mid-range) |
-| CVE-2023-41974 | Kernel | iOS 17.0 | up to iOS 16.x | Kernel (pre-17) |
 | CVE-2024-23225 | Kernel mem | iOS 17.4 + 16.7.6 | up to iOS 17.3.x / 16.7.5 | Kernel (newest) |
 | CVE-2024-23296 | Kernel RTKit | iOS 17.4 + 16.7.6 | up to iOS 17.3.x / 16.7.5 | Kernel (newest) |
+| CVE-2024-23222 | WebKit RCE | iOS 17.3 + 16.7.5 | iOS 16.6 – 17.2.1 | Stage 1 (`cassowary`) |
+| CVE-2023-41974 | Kernel | iOS 17.0 | up to iOS 16.x | Kernel (pre-17) |
+| CVE-2023-43000 | WebKit RCE | iOS 16.6 | iOS 15.6 – 16.5.1 | Stage 1 (`bluebird`/`terrorbird`) |
+| CVE-2023-38606 | Kernel | iOS 16.6 + 15.7.8 | up to iOS 16.5.1 / 15.7.7 | Kernel (mid-range) |
+| CVE-2023-32434 | Kernel | iOS 16.5.1 + 15.7.7 | up to iOS 16.5 / 15.7.6 | Kernel (mid-range) |
+| CVE-2023-32409 | Sandbox escape | iOS 16.5 + 15.7.8 | up to iOS 16.4.x / 15.7.7 | Sandbox escape |
+| CVE-2022-48503 | WebKit RCE | iOS 15.6 | iOS 15.2 – 15.5.x | Stage 1 (`jacurutu`) |
+| CVE-2021-30952 | WebKit RCE | iOS 15.2 | iOS 13.0 – 15.1.1 | Stage 1 (oldest) |
+| CVE-2020-27932 | Kernel privesc | iOS 14.2 | iOS 13.0 – 14.1 | Kernel (oldest) |
+| CVE-2020-27950 | Kernel info leak | iOS 14.2 | iOS 13.0 – 14.1 | Kernel (oldest) |
 
 Note: CVE associations are from the [Google TAG report](https://cloud.google.com/blog/topics/threat-intelligence/coruna-powerful-ios-exploit-kit) which states some may be subject to revision as their analysis is ongoing.
 
