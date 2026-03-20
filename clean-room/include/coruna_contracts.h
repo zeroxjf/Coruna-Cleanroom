@@ -259,8 +259,8 @@ struct coruna80000_thread_pack {
     const void *driver_object;
     uint8_t join_worker;
     uint8_t reserved_09[7];
-    void *payload_bytes;
-    uint32_t payload_size;
+    void *kernel_version_bytes;
+    uint32_t kernel_version_size;
     uint32_t reserved_1c;
     void *record_70003_string;
     void *record_70004_string;

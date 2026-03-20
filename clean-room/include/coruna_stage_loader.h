@@ -83,8 +83,8 @@ bool coruna80000_thread_pack_init(
     struct coruna80000_thread_pack *out_pack,
     const struct coruna90000_driver_object *driver_object,
     bool create_detached_thread,
-    void *payload_bytes,
-    uint32_t payload_size,
+    void *kernel_version_bytes,
+    uint32_t kernel_version_size,
     char *record_70003,
     char *record_70004,
     char *record_70006);

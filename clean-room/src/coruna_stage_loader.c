@@ -156,24 +156,24 @@ bool coruna80000_thread_pack_init(
     struct coruna80000_thread_pack *out_pack,
     const struct coruna90000_driver_object *driver_object,
     bool create_detached_thread,
-    void *payload_bytes,
-    uint32_t payload_size,
+    void *kernel_version_bytes,
+    uint32_t kernel_version_size,
     char *record_70003,
     char *record_70004,
     char *record_70006)
 {
     if (out_pack == NULL
         || !coruna90000_driver_object_validate(driver_object)
-        || payload_bytes == NULL
-        || payload_size == 0) {
+        || kernel_version_bytes == NULL
+        || kernel_version_size == 0) {
         return false;
     }
 
     memset(out_pack, 0, sizeof(*out_pack));
     out_pack->driver_object = driver_object;
     out_pack->join_worker = (uint8_t)(!create_detached_thread);
-    out_pack->payload_bytes = payload_bytes;
-    out_pack->payload_size = payload_size;
+    out_pack->kernel_version_bytes = kernel_version_bytes;
+    out_pack->kernel_version_size = kernel_version_size;
     out_pack->record_70003_string = record_70003;
     out_pack->record_70004_string = record_70004;
     out_pack->record_70006_string = record_70006;

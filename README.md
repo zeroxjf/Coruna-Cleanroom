@@ -786,7 +786,7 @@ The orchestrator also carries these symbol strings, indicating it resolves them 
 
 ### `_start`
 
-`_start` patches four callback slots in the copied bootstrap context (`ctx + 40`, `ctx + 176`, `ctx + 288`, `ctx + 296`), then:
+`_start` patches seven callback slots in the copied bootstrap context (`ctx + 40`, `ctx + 48`, `ctx + 56`, `ctx + 176`, `ctx + 288`, `ctx + 296`, `ctx + 304`), then:
 
 1. resolves `_driver` from record `0x90000`
 2. calls `_driver` to obtain a vtable-backed interface object
