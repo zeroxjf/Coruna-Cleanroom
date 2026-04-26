@@ -444,7 +444,7 @@ Important anchors:
 
 ## Stage3: Loader And Bridge
 
-Stage3 Variant B is the live loader that matters.
+Stage3 Variant B is the live loader that matters for the recovered path in this checkout. `index.html` still references `Stage3_VariantA` for the `offsets.wC3yaB && platformState.qn` branch, which can only be reached after the PAC round-trip check on 17.2-era offsets; `Stage3_VariantA.js` is not present in this mirror, so that conditional branch is not reconstructed here.
 
 Important mechanics:
 
@@ -557,7 +557,13 @@ struct SelectorRecord {
 };
 ```
 
-Observed 17.0.3 sample:
+There are two selector layers in the recovered iOS 17 path:
+
+1. `index.html:fqMaGkNg()` seeds Stage3 with `./7a7d99099b035b2c6512b6ebeeea6df1ede70fbb.min.js`.
+2. The local `7a7d.../raw.bin` payload is already a one-entry `0xF00DBEEF` container for record `0x70000`; its embedded `0x12345678` selector has 19 records and chooses a hash-specific payload bundle.
+3. The selected bundle can then carry its own two-record `0x70000` selector, used by bootstrap to choose the follow-on asset and `prefix32` sideband.
+
+Observed 17.0.3 second-layer sample:
 
 - `base_path = "./"`
 - record 0 prefix: `85ab5908ceb1981df3449b52155a5026561c51d6f9f599acc99c5203b14733eb`
@@ -1438,7 +1444,7 @@ The branch ladder is selected from:
   - `(*(_DWORD *)state & 0x5584001)`
   - `(*(_BYTE *)state & 0x20)`
 
-The two modern `0x90000` variants checked here, `377bed...` and `7a1cef...`, preserve the same selector contract and the same helper-family split even though the concrete function addresses move.
+The two modern `0x90000` variants checked here, `377bed...` and `e9f89858...`, preserve the same selector contract and the same helper-family split even though the concrete function addresses move. The `7a1cef...` payload set shares the compact 196864-byte `0x80000` export surface, but its `0x90000` driver was not the decompiled variant used for the detailed dispatcher notes above.
 
 ### What This Means
 
